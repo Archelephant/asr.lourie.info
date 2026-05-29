@@ -1,0 +1,22 @@
+# Certificates
+russian_trusted_root_ca_pem.crt
+russiantrustedca.crt
+russiantrustedca.pem
+sberbank_certs.pem
+sberbank_root.pem
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Virtual environment (if any)
+venv/
+env/
+.env
+
+# OS metadata
+.DS_Store
+Thumbs.db
