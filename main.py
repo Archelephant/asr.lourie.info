@@ -289,7 +289,7 @@ class TTSResponse(BaseModel):
     detail: str
 
 # ---- Endpoint ----
-@app.post("/api/synthesize", dependencies=[Depends(verify_api_key)])
+@app.post("/asr/synthesize", dependencies=[Depends(verify_api_key)])
 async def synthesize(tts_req: TTSRequest):
     """
     Synthesize speech from text and return audio bytes.
