@@ -12,7 +12,6 @@ ENV/
 .env.*
 
 # Ignore Docker-related files.
-Dockerfile
 .dockerignore
 docker-compose.yml
 
