@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ Archelephant/asr.lourie.info }} 
+  IMAGE_NAME: ${{ archelephant/asr.lourie.info }} 
 
 jobs:
   build-and-push:
