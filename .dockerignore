@@ -1,0 +1,23 @@
+# Ignore Git version control files.
+.git/
+.gitignore
+
+# Ignore Python virtual environments.
+venv/
+env/
+ENV/
+
+# Ignore environment variable files as they contain secrets.
+.env
+.env.*
+
+# Ignore Docker-related files.
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Ignore other development and temporary files.
+__pycache__/
+*.pyc
+*.log
+.DS_Store

@@ -11,9 +11,22 @@ from typing import Optional, BinaryIO
 import requests
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import os
+
+def get_secret(env_var_name):
+    """Retrieve a secret either from a standard env var or from a file."""
+    file_path = os.environ.get(f"{env_var_name}_FILE")
+    if file_path and os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            return f.read().strip()
+    return os.environ.get(env_var_name)
 
 # Load environment variables from .env (if present)
 load_dotenv()
+SALUTE_SPEECH_API_URL = get_secret("SALUTE_SPEECH_API_URL")
+TTS_URL = get_secret("TTS_URL")
+SCOPE = get_secret("SCOPE")
+AUTH_KEY = get_secret("AUTH_KEY")
 
 class SaluteSpeechError(Exception):
     """Base exception for SaluteSpeech API errors."""
