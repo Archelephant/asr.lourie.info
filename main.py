@@ -72,8 +72,8 @@ class SaluteSpeechClient:
         self.logger.info("SaluteSpeechClient initialized")
 
     def _get_config(self, key: str, required: bool = False, default: str = None) -> str:
-        """Retrieve configuration from passed dict, then environment, then default."""
-        value = self.config.get(key) or os.getenv(key, default)
+        """Retrieve configuration from passed dict, then from secret (via get_secret), then default."""
+        value = self.config.get(key) or get_secret(key) or os.getenv(key, default)
         if required and not value:
             raise SaluteSpeechError(f"Missing required configuration: {key}")
         return value
