@@ -1,20 +1,23 @@
 # Use an official lightweight Python image.
 FROM python:3.12-slim
 
-# Set environment variables to prevent Python from buffering output and writing>
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Set the working directory inside the container.
 WORKDIR /app
 
-# Install system dependencies needed for your application and pipenv.
+# Install system dependencies (if any needed)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the dependency files first (to leverage Docker caching).
+# Copy requirements first for better caching
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Python dependencies.
+# Copy the rest of the application
+COPY . .
+
+# Expose the port
+EXPOSE 8000
+
+# Run uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

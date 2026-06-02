@@ -278,7 +278,7 @@ app = FastAPI(
 )
 
 # ---- Authentication Dependency ----
-API_KEY = os.getenv("ASR_API_KEY")
+API_KEY = get_secret("ASR_API_KEY")
 if not API_KEY:
     logger.warning("ASR_API_KEY not set in environment. API will be unprotected!")
 
