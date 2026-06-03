@@ -10,7 +10,7 @@ Interactive API documentation (Swagger UI) is available at:
 
 ## 📁 Project Structure (on the server)
 
-/var/www/asr.lourie.info/
+```/var/www/asr.lourie.info/
 ├── main.py # FastAPI application + SaluteSpeechClient
 ├── requirements.txt # Python dependencies
 ├── Dockerfile # Docker image recipe
@@ -23,8 +23,9 @@ Interactive API documentation (Swagger UI) is available at:
 │ ├── auth_key.txt # Basic Auth key (client_id:client_secret)
 │ └── asr_api_key.txt # API key for authenticating requests to this service
 └── .gitignore # Excludes secrets/, pycache, venv/, .env
-text
+```
 
+---
 
 ### 🔐 Secrets explained
 
@@ -66,61 +67,77 @@ services:
       - ./russiantrustedca.pem:/app/russiantrustedca.pem:ro
     ports:
       - "127.0.0.1:8000:8000"
+```
 
 
+---
+
+## Secret files
+```
 secrets:
   salute_speech_api_url: { file: ./secrets/salute_speech_api_url.txt }
   tts_url:               { file: ./secrets/tts_url.txt }
   scope:                 { file: ./secrets/scope.txt }
   auth_key:              { file: ./secrets/auth_key.txt }
   asr_api_key:           { file: ./secrets/asr_api_key.txt }
+```
 
-Start the service:
-bash
+---
 
+## Start the service:
+```bash
 docker compose up -d
+```
+---
 
-View logs:
-bash
-
+## View logs:
+```bash
 docker compose logs -f fastapi
+```
 
-🧪 API Usage
+---
+
+### 🧪 API Usage
 
 All endpoints require the header:
-text
-
+```text
 X-API-Key: <your_asr_api_key>
+```
 
-Synthesize speech
+---
 
-Endpoint: POST /asr/synthesize
+## Synthesize speech
+
+Endpoint: ```POST /asr/synthesize```
 
 Request body (JSON):
-json
-
+```json
 {
   "text": "Привет, мир!",
   "voice": "Nec_24000",
   "format": "opus"
 }
+```
 
-Parameters:
-Field	Type	Default	Description
-text	string	–	Text to synthesize (max 4000 characters)
-voice	string	Ost_24000	Voice model (e.g., Nec_24000, Bys_24000)
-format	string	opus	Audio format: opus, wav16, pcm16, alaw, g729
+## Parameters:
 
-Response:
-Binary audio data (Content-Type: audio/ogg for opus, audio/wav for wav16, etc.)
+| Field	| Type	| Default |	Description |
+|-------|----------|------------|--------------------|
+| text	| string	| –	| Text to synthesize (max 4000 characters) |
+| voice |	string	| Ost_24000	| Voice model  (e.g., Nec_24000, Bys_24000) |
+| format |	string |	opus |	Audio format: opus, wav16, pcm16, alaw, g729 |
+
+Response: 
+```Binary audio data (Content-Type: audio/ogg for opus, audio/wav for wav16, etc.)```
+
 Example curl
-bash
-
+```bash
 curl -X POST https://asr.lourie.info/asr/synthesize \
   -H "X-API-Key: your_api_key_here" \
   -H "Content-Type: application/json" \
   -d '{"text":"Привет, мир!", "voice":"Nec_24000", "format":"wav16"}' \
   --output speech.wav
+```
 
 🔁 Continuous Deployment
 
@@ -150,4 +167,4 @@ curl -X POST https://asr.lourie.info/asr/synthesize \
 
 📄 License
 
-[Specify your license, e.g., MIT]
+```GNU General Public License (GPL)```
