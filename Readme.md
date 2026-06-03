@@ -127,6 +127,9 @@ Request body (JSON):
 | voice |	string	| Ost_24000	| Voice model  (e.g., Nec_24000, Bys_24000) |
 | format |	string |	opus |	Audio format: opus, wav16, pcm16, alaw, g729 |
 
+**Full list of voices**: https://developers.sber.ru/docs/ru/salutespeech/guides/synthesis/voices
+**SaluteSpeech documentation**: https://developers.sber.ru/docs/ru/salutespeech/overview
+
 Response: 
 ```Binary audio data (Content-Type: audio/ogg for opus, audio/wav for wav16, etc.)```
 
