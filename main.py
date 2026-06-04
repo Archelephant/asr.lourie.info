@@ -1,7 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, File, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 import uuid
@@ -11,7 +11,41 @@ from typing import Optional, BinaryIO
 import requests
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-import os
+import mimetypes
+
+#Helper function to determine the MIME media type
+def get_audio_mime_type_old(filename: str) -> str:
+    """Return the correct Content-Type header for SaluteSpeech API based on file extension."""
+    ext = os.path.splitext(filename)[1].lower()
+    # Explicit mapping for SaluteSpeech requirements
+    mime_map = {
+        '.wav': 'audio/x-wav',
+        '.mp3': 'audio/mpeg',
+        '.ogg': 'audio/ogg',
+        '.flac': 'audio/flac',
+        '.opus': 'audio/ogg;codecs=opus',
+        '.pcm': 'audio/x-pcm;bit=16;rate=16000',
+    }
+    if ext in mime_map:
+        return mime_map[ext]
+    
+    # Fallback for other types
+    mime = mimetypes.guess_type(filename)[0]
+    if mime and mime.startswith('audio/'):
+        return mime
+    return 'application/octet-stream'
+
+def get_audio_mime_type(filename: str) -> str:
+    ext = os.path.splitext(filename)[1].lower()
+    mime_map = {
+        '.wav': 'audio/x-wav',
+        '.mp3': 'audio/mpeg',
+        '.ogg': 'audio/ogg',
+        '.flac': 'audio/flac',
+        '.opus': 'audio/ogg;codecs=opus',
+        '.pcm': 'audio/x-pcm;bit=16;rate=16000',
+    }
+    return mime_map.get(ext, 'application/octet-stream')
 
 def get_secret(env_var_name):
     """Retrieve a secret either from a standard env var or from a file."""
@@ -228,6 +262,98 @@ class SaluteSpeechClient:
         except Exception as e:
             self.logger.error(f"Unexpected error during synthesis: {e}")
             raise SaluteSpeechError(f"Synthesis failed: {e}") from e
+        
+    def recognize_audio(self, file: BinaryIO, filename: str, language: str = "ru-RU") -> str:
+        """
+        Recognize speech from an audio file using SaluteSpeech ASR API.
+
+        :param file: An open binary file object containing the audio.
+        :param language: Language code for recognition (ru-RU, en-US, kk-KZ), 
+        :return: Transcribed text as a string.
+        :raises SaluteSpeechError: on unrecoverable errors.
+        """
+        #NB! Please look up SaluteSpeech documentation for actual language support!!!
+        #https://developers.sber.ru/docs/ru/salutespeech/rest/post-speech-recognition
+
+        # Get a valid OAuth token
+        token = self._get_valid_token()
+
+        # Construct the ASR endpoint URL (adjust if your URL is different)
+        # In production, this should be read from a secret, similar to TTS_URL.
+        asr_url = get_secret("ASR_URL")
+        if not asr_url:
+            # Fallback for local development
+            asr_url = "https://smartspeech.sber.ru/rest/v1/speech:recognize"
+            
+        # Get the correct Content-Type
+        content_type = get_audio_mime_type(filename)
+        
+        #headers = {
+        #    'Authorization': f'Bearer {token}',
+        #}
+        
+        headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': content_type,  # Crucial addition
+        }
+
+        # Use tenacity for retries on network and server errors
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            retry=retry_if_exception_type((
+                requests.ConnectionError,
+                requests.Timeout,
+                requests.exceptions.RetryError
+            )),
+            reraise=True
+        )
+        def _call():
+            # The file is sent as the request body, with appropriate headers
+            # 'Content-Type' is set to the actual MIME type of the file.
+            # For example, 'audio/wav' for WAV files or 'audio/mpeg' for MP3.
+            # If unknown, we can try 'application/octet-stream' as a fallback.
+            # The exact file type can be derived from the 'file' object's name.
+            # However, for simplicity, we'll rely on the 'file' being correctly opened.
+            # Advanced: You can use python-magic to detect MIME type.
+            # For now, we'll let requests set it to 'application/octet-stream'.
+            # See README for more details on how to enhance this.
+            resp = self._request_with_retries(
+                'POST',
+                asr_url,
+                headers=headers,
+                data=file.read(),  # Read the entire file into memory
+                timeout=(10, 60)  # Longer read timeout for audio processing
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        try:
+            self.logger.info(f"Recognizing audio file of size {self._get_file_size(file)} bytes")
+            result = _call()
+            text = result.get('result', '')
+            # According to the library docs, the response may contain a 'text' field
+            # or a nested structure. We'll handle both.
+            if not text and 'text' in result:
+                text = result['text']
+            if not text and 'segments' in result:
+                text = ' '.join(segment.get('text', '') for segment in result['segments'])
+            self.logger.info(f"Recognition successful: {text[:50]}...")
+            return text
+        except requests.exceptions.HTTPError as e:
+            self.logger.error(f"HTTP error during recognition: {e.response.status_code} - {e.response.text}")
+            raise SaluteSpeechError(f"ASR API error: {e}") from e
+        except Exception as e:
+            self.logger.error(f"Unexpected error during recognition: {e}")
+            raise SaluteSpeechError(f"Recognition failed: {e}") from e
+
+    def _get_file_size(self, file: BinaryIO) -> int:
+        """Get the size of the file object (moves file pointer)."""
+        current_pos = file.tell()
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.seek(current_pos)
+        return size
 
     def close(self):
         """Clean up session."""
@@ -301,7 +427,7 @@ class TTSResponse(BaseModel):
     # Not used for audio response, but for error details
     detail: str
 
-# ---- Endpoint ----
+# ---- Synthesize Speech Endpoint ----
 @app.post("/asr/synthesize", dependencies=[Depends(verify_api_key)])
 async def synthesize(tts_req: TTSRequest):
     """
@@ -325,4 +451,51 @@ async def synthesize(tts_req: TTSRequest):
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.exception("Unexpected error during synthesis")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+@app.post("/asr/asr", dependencies=[Depends(verify_api_key)])
+async def asr(
+    request: Request,
+    file: UploadFile = File(...),
+    language: str = "ru-RU"
+):
+    """
+    Recognize speech from an audio file and return text.
+
+    - **file**: Audio file (WAV, MP3, etc.). Max size determined by nginx (30 MB).
+    - **language**: Language code (`ru-RU`, `en-US`, `kk-KZ`). Defaults to `ru-RU`.
+    """
+    global client
+    if client is None:
+        raise HTTPException(status_code=503, detail="ASR service not initialized")
+
+    # Validate file content type (basic check)
+    allowed_types = ['audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3', 'audio/ogg', 'application/octet-stream']
+    if file.content_type not in allowed_types:
+        # Optionally, you can try to detect MIME type using python-magic
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+    # Validate language parameter
+    if language not in ['ru-RU', 'en-US', 'kk-KZ']:
+        raise HTTPException(status_code=400, detail=f"Unsupported language: {language}. Supported: ru-RU, en-US, kk-KZ")
+
+    
+    try:
+        contents = await file.read()
+        
+        # Check file size (2 MB limit for SaluteSpeech)
+        if len(contents) > 2 * 1024 * 1024:  # 2 MB
+            raise HTTPException(
+                status_code=400, 
+                detail="File size exceeds 2 MB limit for synchronous recognition"
+            )
+        
+        from io import BytesIO
+        audio_io = BytesIO(contents)
+        
+        # Pass the original filename for MIME detection
+        text = client.recognize_audio(audio_io, file.filename, language=language)
+        return {"text": text}
+    except Exception as e:
+        logger.exception("Unexpected error during ASR processing")
         raise HTTPException(status_code=500, detail="Internal server error")

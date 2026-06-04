@@ -10,6 +10,7 @@ ENV/
 # Ignore environment variable files as they contain secrets.
 .env
 .env.*
+test.sh
 
 # Ignore Docker-related files.
 .dockerignore

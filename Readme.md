@@ -1,6 +1,6 @@
-# SaluteSpeech TTS API
+# TTS and ASR orchestrator with SaluteSpeech API wrappers
 
-FastAPI‑based text‑to‑speech service using the SaluteSpeech API from Sberbank.  
+FastAPI‑based text‑to‑speech and speech-recognition service using the SaluteSpeech API from Sberbank.  
 The service is deployed at: [https://asr.lourie.info](https://asr.lourie.info)
 
 Interactive API documentation (Swagger UI) is available at:  
@@ -12,13 +12,14 @@ Interactive API documentation (Swagger UI) is available at:
 
 ```/var/www/asr.lourie.info/
 ├── main.py # FastAPI application + SaluteSpeechClient
-├── requirements.txt # Python dependencies
-├── Dockerfile # Docker image recipe
-├── docker-compose.yml # Docker Compose definition
+├── requirements.txt 
+├── Dockerfile
+├── docker-compose.yml 
 ├── russiantrustedca.pem # Custom CA bundle (for SaluteSpeech API)
 ├── secrets/ # These files are supplied separately directly to server
 │ ├── salute_speech_api_url.txt # OAuth endpoint
-│ ├── tts_url.txt # TTS synthesis endpoint
+│ ├── tts_url.txt # SaluteSpeech TTS URL
+│ ├── asr_url.txt # SaluteSpeech ASR URL
 │ ├── scope.txt # OAuth scope (e.g., SALUTE_SPEECH_PERS)
 │ ├── auth_key.txt # Basic Auth key (client_id:client_secret)
 │ └── asr_api_key.txt # API key for authenticating requests to this service
@@ -32,7 +33,8 @@ Interactive API documentation (Swagger UI) is available at:
 | Secret file | Environment variable (inside container) | Purpose |
 |-------------|------------------------------------------|---------|
 | `salute_speech_api_url.txt` | `SALUTE_SPEECH_API_URL_FILE` | OAuth token endpoint |
-| `tts_url.txt`               | `TTS_URL_FILE`                         | TTS synthesis endpoint |
+| `tts_url.txt`               | `TTS_URL_FILE`                         | SaluteSpeech TTS URL |
+| `asr_url.txt`               | `ASR_URL_FILE`                         | SaluteSpeech ASR URL |
 | `scope.txt`                 | `SCOPE_FILE`                           | OAuth scope |
 | `auth_key.txt`              | `AUTH_KEY_FILE`                        | Basic auth credentials (Base64) |
 | `asr_api_key.txt`           | `ASR_API_KEY_FILE`                     | API key for `X-API-Key` header |
@@ -53,12 +55,14 @@ services:
     secrets:
       - salute_speech_api_url
       - tts_url
+      - asr_url
       - scope
       - auth_key
       - asr_api_key
     environment:
       - SALUTE_SPEECH_API_URL_FILE=/run/secrets/salute_speech_api_url
       - TTS_URL_FILE=/run/secrets/tts_url
+      - ASR_URL_FILE=/run/secrets/asr_url
       - SCOPE_FILE=/run/secrets/scope
       - AUTH_KEY_FILE=/run/secrets/auth_key
       - ASR_API_KEY_FILE=/run/secrets/asr_api_key
@@ -77,6 +81,7 @@ services:
 secrets:
   salute_speech_api_url: { file: ./secrets/salute_speech_api_url.txt }
   tts_url:               { file: ./secrets/tts_url.txt }
+  asr_url:               { file: ./secrets/asr_url.txt }
   scope:                 { file: ./secrets/scope.txt }
   auth_key:              { file: ./secrets/auth_key.txt }
   asr_api_key:           { file: ./secrets/asr_api_key.txt }
@@ -141,6 +146,41 @@ curl -X POST https://asr.lourie.info/asr/synthesize \
   -d '{"text":"Привет, мир!", "voice":"Nec_24000", "format":"wav16"}' \
   --output speech.wav
 ```
+
+## Recognize speech (ASR)
+
+Endpoint: ```POST /asr/asr```
+
+Transcribes an audio file into text using the SaluteSpeech ASR API.
+
+Request (multipart/form-data):
+```
+- file: audio file (WAV, MP3, OGG, FLAC, PCM) – max 2 MB (SaluteSpeech synchronous limit)
+- language: optional, default ru-RU. Supported: ru-RU, en-US, kk-KZ
+```
+
+Response (200 OK):
+```json
+{
+
+    "text": "transcribed text from the audio"
+    }
+```
+
+Example curl:
+
+```bash
+curl -X POST https://asr.lourie.info/asr/asr \
+
+    -H "X-API-Key: your_api_key_here" \
+
+    -F "file=@speech.wav" \
+
+    -F "language=ru-RU"
+    ```
+
+Note: The synchronous ASR API has a 2 MB (in size) OR 1 minute (in duration) limit. Larger files require the asynchronous API (not implemented here).
+
 
 🔁 Continuous Deployment
 
