@@ -4,3 +4,4 @@ python-dotenv
 requests
 tenacity
 python-multipart
+gigachat

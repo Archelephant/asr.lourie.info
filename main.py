@@ -1,4 +1,5 @@
 import os
+import io
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Request, File, UploadFile, status
@@ -12,6 +13,9 @@ import requests
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import mimetypes
+
+from gigachat import GigaChat
+from gigachat.models import Chat, Messages, MessagesRole, ChatCompletion
 
 #Helper function to determine the MIME media type
 def get_audio_mime_type_old(filename: str) -> str:
@@ -61,6 +65,7 @@ SALUTE_SPEECH_API_URL = get_secret("SALUTE_SPEECH_API_URL")
 TTS_URL = get_secret("TTS_URL")
 SCOPE = get_secret("SCOPE")
 AUTH_KEY = get_secret("AUTH_KEY")
+GIGACHAT_CREDENTIALS = get_secret("GIGACHAT_CREDENTIALS")
 
 class SaluteSpeechError(Exception):
     """Base exception for SaluteSpeech API errors."""
@@ -266,7 +271,7 @@ class SaluteSpeechClient:
     def recognize_audio(self, file: BinaryIO, filename: str, language: str = "ru-RU") -> str:
         """
         Recognize speech from an audio file using SaluteSpeech ASR API.
-
+        
         :param file: An open binary file object containing the audio.
         :param language: Language code for recognition (ru-RU, en-US, kk-KZ), 
         :return: Transcribed text as a string.
@@ -338,6 +343,11 @@ class SaluteSpeechClient:
                 text = result['text']
             if not text and 'segments' in result:
                 text = ' '.join(segment.get('text', '') for segment in result['segments'])
+            # Ensure text is a string (join if it's a list)
+            if isinstance(text, list):
+                text = ' '.join(text)
+            elif not isinstance(text, str):
+                text = str(text)
             self.logger.info(f"Recognition successful: {text[:50]}...")
             return text
         except requests.exceptions.HTTPError as e:
@@ -366,6 +376,91 @@ class SaluteSpeechClient:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+class GigaChatClient:
+    """Client for GigaChat API with retry, exponential backoff, and token management."""
+    
+    def __init__(self, credentials: str, ca_bundle_file: Optional[str] = None, scope: str = "GIGACHAT_API_PERS"):
+        self.credentials = credentials
+        self.ca_bundle_file = ca_bundle_file
+        self.scope = scope
+        self.logger = logging.getLogger("GigaChatClient")
+        self._client = None
+    
+    def _get_client(self) -> GigaChat:
+        """Get or create the GigaChat client instance."""
+        if self._client is None:
+            # Configure the client with SSL certificate if provided
+            if self.ca_bundle_file and os.path.exists(self.ca_bundle_file):
+                self._client = GigaChat(
+                    credentials=self.credentials,
+                    scope=self.scope,
+                    ca_bundle_file=self.ca_bundle_file,
+                    verify_ssl_certs=True,
+                    timeout=30.0
+                )
+            else:
+                # Fallback for development - disable SSL verification (not recommended for production)
+                self.logger.warning("Using GigaChat without SSL certificate verification. This is not recommended for production.")
+                self._client = GigaChat(
+                    credentials=self.credentials,
+                    scope=self.scope,
+                    verify_ssl_certs=False,
+                    timeout=30.0
+                )
+        return self._client
+    
+    def generate_response(self, text: str) -> str:
+        """
+        Generate a response from GigaChat based on the input text.
+        Implements retry logic with exponential backoff.
+        
+        :param text: Input text to send to GigaChat
+        :return: Generated response text
+        :raises Exception: on unrecoverable errors
+        """
+        # Coerce to string if a list or other type is passed
+        if isinstance(text, list):
+            text = " ".join(text)
+        elif not isinstance(text, str):
+            text = str(text)
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            retry=retry_if_exception_type((
+                requests.ConnectionError,
+                requests.Timeout,
+                requests.exceptions.Timeout,
+                requests.exceptions.RetryError
+            )),
+            reraise=True
+        )
+        def _call():
+            client = self._get_client()
+            with client:
+                messages = [
+                    Messages(
+                        role=MessagesRole.SYSTEM,
+                        content="Ты полезный ассистент, который отвечает на вопросы пользователя."
+                    ),
+                    Messages(
+                        role=MessagesRole.USER,
+                        content=text
+                    )
+                ]
+                chat = Chat(messages=messages)
+                response = client.chat(chat)
+                return response.choices[0].message.content
+        
+        try:
+            self.logger.info(f"Generating GigaChat response for: {text[:50]}...")
+            result = _call()
+            self.logger.info(f"GigaChat generated: {result[:50]}...")
+            return result
+        except Exception as e:
+            self.logger.error(f"Error generating GigaChat response: {e}")
+            raise SaluteSpeechError(f"GigaChat generation failed: {e}") from e
+
 # Load environment (if .env exists)
 from dotenv import load_dotenv
 load_dotenv()
@@ -379,17 +474,31 @@ logger = logging.getLogger("asr-api")
 
 # Global client instance (lazy initialization or on startup)
 client: Optional[SaluteSpeechClient] = None
+giga_client: Optional[GigaChatClient] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create client
-    global client
+    # Startup: create clients
+    global client, giga_client
     try:
         client = SaluteSpeechClient()
         logger.info("SaluteSpeechClient initialized")
     except Exception as e:
         logger.error(f"Failed to initialize SaluteSpeechClient: {e}")
         raise
+
+    # --- GigaChat client initialization ---
+    gigachat_credentials = get_secret("GIGACHAT_CREDENTIALS")
+    if gigachat_credentials:
+        ca_bundle_path = os.getenv("CA_BUNDLE_PATH")
+        giga_client = GigaChatClient(
+            credentials=gigachat_credentials,
+            ca_bundle_file=ca_bundle_path if ca_bundle_path and os.path.exists(ca_bundle_path) else None
+        )
+        logger.info("GigaChat client initialized")
+    else:
+        logger.warning("GigaChat credentials not found – /a2a endpoint will be unavailable")
+        giga_client = None
     yield
     # Shutdown: clean up
     if client:
@@ -453,6 +562,9 @@ async def synthesize(tts_req: TTSRequest):
         logger.exception("Unexpected error during synthesis")
         raise HTTPException(status_code=500, detail="Internal server error")
     
+
+# ASR endpoint-----------------------------------------
+
 @app.post("/asr/asr", dependencies=[Depends(verify_api_key)])
 async def asr(
     request: Request,
@@ -498,4 +610,74 @@ async def asr(
         return {"text": text}
     except Exception as e:
         logger.exception("Unexpected error during ASR processing")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+# A2A Endpoint------------------------
+
+@app.post("/a2a", dependencies=[Depends(verify_api_key)])
+async def a2a(
+    request: Request,
+    file: UploadFile = File(...),
+    language: str = "ru-RU"
+):
+    """
+    Process audio from IoT device through ASR -> GigaChat -> TTS pipeline.
+    
+    Input: audio file
+    Output: synthesized speech audio (same format as /asr/synthesize)
+    
+    - **file**: Audio file (WAV, MP3, etc.)
+    - **language**: Language code (`ru-RU`, `en-US`, `kk-KZ`). Defaults to `ru-RU`.
+    """
+    global client, giga_client
+    if client is None or giga_client is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    
+    # Validate file (size limits, format, etc.)
+    # ... (reuse existing validation from /asr/asr)
+    
+    try:
+        # 1. Read the uploaded file
+        contents = await file.read()
+        
+        # Check file size (2 MB limit for SaluteSpeech synchronous ASR)
+        if len(contents) > 2 * 1024 * 1024:  # 2 MB
+            raise HTTPException(
+                status_code=400,
+                detail="File size exceeds 2 MB limit for synchronous recognition"
+            )
+        
+        from io import BytesIO
+        audio_io = BytesIO(contents)
+        
+        # 2. Step 1: ASR - Convert speech to text
+        asr_text = client.recognize_audio(audio_io, file.filename, language=language)
+        logger.info(f"ASR completed for file {file.filename}.")
+        logger.info(f"ASR returned: {asr_text!r} (type: {type(asr_text)})")
+        
+        # 3. Step 2: GigaChat - Generate response
+        response_text = giga_client.generate_response(asr_text)
+        logger.info(f"GigaChat response: {response_text[:50]}...")
+        
+        # 4. Step 3: TTS - Convert response text back to speech
+        audio_response = client.synthesize_text(response_text, voice="Nec_24000", audio_format="opus")
+        
+        # 5. Return the synthesized audio
+        # Determine content type based on format
+        format_map = {
+            "opus": "audio/ogg",
+            "wav16": "audio/wav",
+            "pcm16": "audio/pcm",
+            "alaw": "audio/alaw",
+            "g729": "audio/g729"
+        }
+        content_type = format_map.get("opus", "application/octet-stream")
+        
+        return Response(content=audio_response, media_type=content_type)
+        
+    except SaluteSpeechError as e:
+        logger.error(f"SaluteSpeech error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.exception("Unexpected error during A2A processing")
         raise HTTPException(status_code=500, detail="Internal server error")

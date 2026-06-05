@@ -23,6 +23,7 @@ Interactive API documentation (Swagger UI) is available at:
 │ ├── scope.txt # OAuth scope (e.g., SALUTE_SPEECH_PERS)
 │ ├── auth_key.txt # Basic Auth key (client_id:client_secret)
 │ └── asr_api_key.txt # API key for authenticating requests to this service
+│ └── gigachat_credentials.txt # API key for authenticating requests to GigaChat API
 └── .gitignore # Excludes secrets/, pycache, venv/, .env
 ```
 
@@ -38,6 +39,7 @@ Interactive API documentation (Swagger UI) is available at:
 | `scope.txt`                 | `SCOPE_FILE`                           | OAuth scope |
 | `auth_key.txt`              | `AUTH_KEY_FILE`                        | Basic auth credentials (Base64) |
 | `asr_api_key.txt`           | `ASR_API_KEY_FILE`                     | API key for `X-API-Key` header |
+| `gigachat_credentials.txt`  | `GIGACHAT_CREDENTIALS_FILE`            | API key for GigaChat API |
 
 These files are **mounted as Docker secrets** – they are never exposed in environment variables directly, only read via `get_secret()` in the code.
 
@@ -59,6 +61,7 @@ services:
       - scope
       - auth_key
       - asr_api_key
+      - gigachat_credentials
     environment:
       - SALUTE_SPEECH_API_URL_FILE=/run/secrets/salute_speech_api_url
       - TTS_URL_FILE=/run/secrets/tts_url
@@ -67,6 +70,7 @@ services:
       - AUTH_KEY_FILE=/run/secrets/auth_key
       - ASR_API_KEY_FILE=/run/secrets/asr_api_key
       - CA_BUNDLE_PATH=/app/russiantrustedca.pem
+      - GIGACHAT_CREDENTIALS_FILE=/run/secrets/gigachat_credentials
     volumes:
       - ./russiantrustedca.pem:/app/russiantrustedca.pem:ro
     ports:
@@ -85,6 +89,7 @@ secrets:
   scope:                 { file: ./secrets/scope.txt }
   auth_key:              { file: ./secrets/auth_key.txt }
   asr_api_key:           { file: ./secrets/asr_api_key.txt }
+  gigachat_credentials:  { file: ./secrets/gigachat_credentials.txt}
 ```
 
 ---
@@ -177,18 +182,61 @@ curl -X POST https://asr.lourie.info/asr/asr \
     -F "file=@speech.wav" \
 
     -F "language=ru-RU"
-    ```
+  ```
 
 Note: The synchronous ASR API has a 2 MB (in size) OR 1 minute (in duration) limit. Larger files require the asynchronous API (not implemented here).
 
+## Audio-to-Audio (A2A) Pipeline
+
+Endpoint: `POST /a2a`
+
+Processes an audio file through a full **speech recognition → AI generation → speech synthesis** pipeline:
+1. Transcribes the incoming audio (ASR)
+2. Sends the text to GigaChat for a generated response
+3. Synthesizes the response text back into speech (TTS)
+
+The result is an audio file containing the AI‑generated spoken answer – ideal for voice‑enabled IoT devices.
+
+**Authentication**  
+Same as all endpoints – include your API key in the `X-API-Key` header.
+
+**Request** (`multipart/form-data`):
+- `file` (required) – audio file (WAV, MP3, OGG, FLAC, PCM).  
+  Maximum size: **2 MB** (due to synchronous ASR limit, duration ≤ 60 seconds).
+- `language` (optional) – language code for recognition, default `ru-RU`.  
+  Supported: `ru-RU`, `en-US`, `kk-KZ`.
+
+**Response** (success, 200 OK):
+- Binary audio data – synthesized speech from GigaChat’s answer.  
+  Default format: **opus** (audio/ogg).  
+  Content‑type: `audio/ogg`.
+
+**Error responses** (400, 401, 500) return JSON with error details.
+
+**Example `curl`**:
+
+```bash
+curl -X POST https://asr.lourie.info/a2a \
+  -H "X-API-Key: your_api_key_here" \
+  -F "file=@<absolute path to your file>" \
+  -F "language=ru-RU" \
+  --output answer.ogg
+  ```
 
 🔁 Continuous Deployment
 
-    The Docker image is built and published to GitHub Container Registry via GitHub Actions (see .github/workflows/docker-publish.yml).
+The Docker image is built and published to GitHub Container Registry via GitHub Actions (see .github/workflows/docker-publish.yml).
 
-    Every push to the main branch triggers a new image build.
+Every push to the main branch triggers a new image build.
 
-    On the server, a simple docker compose pull && docker compose up -d updates the running container (can be automated with a webhook or cron).
+On the server:
+
+```bash
+    docker compose down
+    docker compose pull
+    docker compose up -d
+```
+    
 
 🛠 Development (local)
 
