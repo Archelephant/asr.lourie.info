@@ -256,6 +256,17 @@ On the server:
 
     uvicorn main:app --reload
 
+**Verbose logging** (for debugging):  
+Add `?verbose=true` to the URL to log:
+- Unique request UUID
+- File size and name
+- Transcribed text
+- GigaChat client status (active/inactive)  
+- For `/a2a`: GigaChat response and final audio size
+
+Example:  
+`https://asr.lourie.info/a2a?verbose=true`
+
 📄 License
 
 ```GNU General Public License (GPL)```

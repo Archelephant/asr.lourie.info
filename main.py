@@ -569,7 +569,8 @@ async def synthesize(tts_req: TTSRequest):
 async def asr(
     request: Request,
     file: UploadFile = File(...),
-    language: str = "ru-RU"
+    language: str = "ru-RU",
+    verbose: bool = False   #Verbose logging for debug purposes
 ):
     """
     Recognize speech from an audio file and return text.
@@ -593,21 +594,31 @@ async def asr(
 
     
     try:
+        request_id = str(uuid.uuid4())
         contents = await file.read()
+        file_size = len(contents)
         
+        if verbose:
+            logger.info(f"[{request_id}] ASR request - file received: {file.filename}, size: {file_size} bytes, language: {language}")
+
         # Check file size (2 MB limit for SaluteSpeech)
-        if len(contents) > 2 * 1024 * 1024:  # 2 MB
+        if file_size > 2 * 1024 * 1024:  # 2 MB
             raise HTTPException(
                 status_code=400, 
                 detail="File size exceeds 2 MB limit for synchronous recognition"
             )
-        
+                
         from io import BytesIO
         audio_io = BytesIO(contents)
         
         # Pass the original filename for MIME detection
         text = client.recognize_audio(audio_io, file.filename, language=language)
+
+        if verbose:
+            logger.info(f"[{request_id}] ASR result: {text}")
         return {"text": text}
+    
+
     except Exception as e:
         logger.exception("Unexpected error during ASR processing")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -618,7 +629,8 @@ async def asr(
 async def a2a(
     request: Request,
     file: UploadFile = File(...),
-    language: str = "ru-RU"
+    language: str = "ru-RU",
+    verbose: bool = False   #Verbose logging for debug purposes
 ):
     """
     Process audio from IoT device through ASR -> GigaChat -> TTS pipeline.
@@ -637,11 +649,20 @@ async def a2a(
     # ... (reuse existing validation from /asr/asr)
     
     try:
+        request_id = str(uuid.uuid4())
         # 1. Read the uploaded file
         contents = await file.read()
+        file_size = len(contents)
+
+        if verbose:
+            logger.info(f"[{request_id}] A2A request - file received: {file.filename}, size: {file_size} bytes, language: {language}")
+            logger.info(f"[{request_id}] A2A request - file: {file.filename}, size: {file_size} bytes, language: {language}")
+            giga_status = "active" if giga_client is not None else "inactive/not initialized"
+            logger.info(f"[{request_id}] GigaChat client status: {giga_status}")
+
         
         # Check file size (2 MB limit for SaluteSpeech synchronous ASR)
-        if len(contents) > 2 * 1024 * 1024:  # 2 MB
+        if file_size > 2 * 1024 * 1024:  # 2 MB
             raise HTTPException(
                 status_code=400,
                 detail="File size exceeds 2 MB limit for synchronous recognition"
@@ -658,9 +679,11 @@ async def a2a(
         # 3. Step 2: GigaChat - Generate response
         response_text = giga_client.generate_response(asr_text)
         logger.info(f"GigaChat response: {response_text[:50]}...")
+        if verbose:
+            logger.info(f"[{request_id}] GigaChat response: {response_text}")
         
         # 4. Step 3: TTS - Convert response text back to speech
-        audio_response = client.synthesize_text(response_text, voice="Nec_24000", audio_format="opus")
+        audio_response = client.synthesize_text(response_text, voice="Nec_24000", audio_format="wav16")
         
         # 5. Return the synthesized audio
         # Determine content type based on format
@@ -671,7 +694,7 @@ async def a2a(
             "alaw": "audio/alaw",
             "g729": "audio/g729"
         }
-        content_type = format_map.get("opus", "application/octet-stream")
+        content_type = format_map.get("wav16", "application/octet-stream")
         
         return Response(content=audio_response, media_type=content_type)
         
