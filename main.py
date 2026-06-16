@@ -437,20 +437,19 @@ class GigaChatClient:
         )
         def _call():
             client = self._get_client()
-            with client:
-                messages = [
-                    Messages(
-                        role=MessagesRole.SYSTEM,
-                        content="Ты полезный ассистент, который отвечает на вопросы пользователя."
-                    ),
-                    Messages(
-                        role=MessagesRole.USER,
-                        content=text
+            messages = [
+                Messages(
+                    role=MessagesRole.SYSTEM,
+                    content="Ты полезный ассистент, который отвечает на вопросы пользователя. Отвечай коротко и по сути, чтобы твой ответ длился не более 30 секунд."
+                ),
+                Messages(
+                    role=MessagesRole.USER,
+                    content=text
                     )
-                ]
-                chat = Chat(messages=messages)
-                response = client.chat(chat)
-                return response.choices[0].message.content
+            ]
+            chat = Chat(messages=messages)
+            response = client.chat(chat)
+            return response.choices[0].message.content
         
         try:
             self.logger.info(f"Generating GigaChat response for: {text[:50]}...")
