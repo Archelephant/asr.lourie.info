@@ -2,8 +2,11 @@ import os
 import io
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends, Request, File, UploadFile, status
-from fastapi.responses import Response
+from fastapi import FastAPI, HTTPException, Depends, Request, Form, File, UploadFile, status
+from fastapi.responses import Response, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
 from pydantic import BaseModel, Field
 import uuid
 import time
@@ -16,6 +19,10 @@ import mimetypes
 
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole, ChatCompletion
+
+# Default system prompt to fit into Salute Speech limitations
+DEFAULT_SYSTEM_PROMPT = """Ты полезный ассистент, который отвечает на вопросы пользователя. 
+Отвечай коротко и по сути, чтобы твой ответ длился не более 30 секунд."""
 
 #Helper function to determine the MIME media type
 def get_audio_mime_type_old(filename: str) -> str:
@@ -409,7 +416,7 @@ class GigaChatClient:
                 )
         return self._client
     
-    def generate_response(self, text: str) -> str:
+    def generate_response(self, text: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> str:
         """
         Generate a response from GigaChat based on the input text.
         Implements retry logic with exponential backoff.
@@ -440,7 +447,7 @@ class GigaChatClient:
             messages = [
                 Messages(
                     role=MessagesRole.SYSTEM,
-                    content="Ты полезный ассистент, который отвечает на вопросы пользователя. Отвечай коротко и по сути, чтобы твой ответ длился не более 30 секунд."
+                    content=system_prompt
                 ),
                 Messages(
                     role=MessagesRole.USER,
@@ -504,6 +511,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("SaluteSpeechClient closed")
 
+# -----------------------------FAST API starts here--------------------------------------------------
 app = FastAPI(
     title="ASR TTS API",
     description="Text-to-Speech using SaluteSpeech API",
@@ -534,6 +542,161 @@ class TTSRequest(BaseModel):
 class TTSResponse(BaseModel):
     # Not used for audio response, but for error details
     detail: str
+
+#--------------------------Front-end----------------------------------------------------
+# Mount static files (CSS, JS)
+app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
+# Set up Jinja2 templates
+templates = Jinja2Templates(directory="frontend/templates")
+
+# Initial entry URL, I'll keep it for now
+@app.get("/questionnaire", response_class=HTMLResponse)
+async def get_questionnaire(request: Request):
+    """Serve the questionnaire frontend."""
+    #debug
+    print(type(templates)) 
+    print(templates.__dict__.keys()) 
+    return templates.TemplateResponse(request=request, name="questionnaire.html", context={"request": request})
+
+# Multi-step intro
+@app.get("/", response_class=HTMLResponse)
+async def get_index(request: Request):
+    """Serve the new multi-step questionnaire."""
+    return templates.TemplateResponse(request, "index.html", {"request": request})
+
+#--------------------------Back-end------------------------------------------------------
+
+# --- Questionnaire submission endpoint ---
+
+@app.post("/submit_questionnaire")
+async def submit_questionnaire(
+    request: Request,
+    gender: str = Form(...),
+    age: str = Form(...),
+    track: str = Form(...),
+    goal: str = Form(...),
+    goal_other: Optional[str] = Form(None),
+    # Track-specific fields – we'll use dynamic keys; we can accept all as Form data
+    # Better: use Request to get form data, but we can also use Form(...) for each.
+    # However, to keep it flexible, we'll use `Request` to parse form data manually.
+):
+    """
+    Receive all questionnaire data, enrich context, and call GigaChat.
+    """
+    global giga_client
+    if giga_client is None:
+        raise HTTPException(status_code=503, detail="GigaChat service not available")
+
+    # Parse form data
+    form_data = await request.form()
+    # Convert to dict
+    data = {k: v for k, v in form_data.items()}
+
+    # Extract common fields
+    gender = data.get("gender")
+    age = data.get("age")
+    track = data.get("track")
+    goal = data.get("goal")
+    goal_other = data.get("goal_other")
+
+    # Extract track-specific answers – we know the field names from trackData
+    # For past track:
+    if track == "past":
+        event_name = data.get("event_name", "")
+        age_at_moment = data.get("age_at_moment", "")
+        place_action = data.get("place_action", "")
+        light_weather = data.get("light_weather", "")
+        light_weather_other = data.get("light_weather_other", "")
+        # If light_weather is "другое", use the other value
+        if light_weather == "другое" and light_weather_other:
+            light_weather = light_weather_other
+        else:
+            light_weather = "не помню"
+        # Same with goal
+        if goal == "другое" and goal_other:
+            goal = goal_other
+        else:
+            goal = "просто вспомнить"
+        # Build user message
+        user_message = (
+            f"""Я хочу заново пережить опыт {event_name} из прошлого c целью {goal}. 
+            Это было в {place_action}, в тот момент мне было {age_at_moment}.
+            Помню, что тогда было {light_weather}.
+            Сейчас мне {age} лет, я {gender}."""
+        )
+    elif track == "present":
+        present_role = data.get('present_role')
+        present_place = data.get('present_place')
+        time_day = data.get('time_day')
+        one_thing = data.get('one_thing')
+        light_weather = data.get("light_weather", "")
+        light_weather_other = data.get("light_weather_other", "")
+        # If light_weather is "другое", use the other value
+        if light_weather == "другое" and light_weather_other:
+            light_weather = light_weather_other
+        else:
+            light_weather = "не важно"
+        # Same with goal
+        if goal == "другое" and goal_other:
+            goal = goal_other
+        else:
+            goal = "самоосмысления"
+        # Build user message
+        user_message = (
+            f"""Я хочу посмотреть на себя со стороны c целью {goal}. Мне {age} лет, я {gender}.
+            Я сейчас нахожусь в {present_place}, где играю роль {present_role}. 
+            Смоделируй ситуацию, которая происходит {time_day} в условиях {light_weather}.
+            """
+        )
+    elif track == "future":
+        future_date = data.get('future_date')
+        future_role = data.get('future_role')
+        future_place = data.get('future_place')
+        future_action = data.get('future_action')
+        light_weather = data.get("light_weather", "")
+        light_weather_other = data.get("light_weather_other", "")
+        # If light_weather is "другое", use the other value
+        if light_weather == "другое" and light_weather_other:
+            light_weather = light_weather_other
+        else:
+            light_weather = "не важно"
+        # Same with goal
+        if goal == "другое" and goal_other:
+            goal = goal_other
+        else:
+            goal = "проектирования пути развития"
+        # Build user message
+        user_message = (
+            f"""Я хочу визуализировать свое вероятное будущее c целью {goal}. Сейчас мне {age} лет, я {gender}.
+            Я заглянуть во время {future_date} и {future_place}, где буду играть роль {future_role} и делать {future_action}. 
+            Смоделируй ситуацию, которая происходит в условиях {light_weather}.
+            """
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Invalid track")
+
+    # --- 2. TODO: Enrich context (your logic here) ---
+    enriched_prompt = user_message  # Placeholder – replace with your enrichment
+
+    # --- 3. Call GigaChat ---
+    director_prompt = """
+    Ты - сценарист-психолог.
+    Твоя задача - сгенерировать сценарий видеоролика, который впоследствии будет использован нейросетью для генерации видео.
+    Четко опиши каждую сцену и дай указания нейросети, как сгенерировать видео.
+    Не используй имен собственных, если пользователь их в явном виде не сообщил.
+    Помни, что нейросетевые видео ограничены по времени.
+    """
+
+    try:
+        response_text = giga_client.generate_response(enriched_prompt, system_prompt=director_prompt)
+    except Exception as e:
+        logger.error(f"GigaChat error: {e}")
+        raise HTTPException(status_code=500, detail=f"GigaChat error: {str(e)}")
+
+    # --- 4. Return the response ---
+    return {"response": response_text}
+
 
 # ---- Synthesize Speech Endpoint ----
 @app.post("/asr/synthesize", dependencies=[Depends(verify_api_key)])

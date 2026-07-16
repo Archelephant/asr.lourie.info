@@ -1,6 +1,10 @@
-# TTS and ASR orchestrator with SaluteSpeech API wrappers
+# TTS and ASR orchestration with demo frontend
 
-FastAPI‑based text‑to‑speech and speech-recognition service using the SaluteSpeech API from Sberbank.  
+A FastAPI‑based service that provides:
+
+- **Text‑to‑Speech (TTS)** and **Automatic Speech Recognition (ASR)** using the custom wrappers for SaluteSpeech API from Sberbank.
+- **Demo frontend** – a questionnaire frontend that collects user input (gender, age, goal, and track‑specific questions) and sends the enriched context to GigaChat to generate short video scripts or memory‑based narratives.
+
 The service is deployed at: [https://asr.lourie.info](https://asr.lourie.info)
 
 Interactive API documentation (Swagger UI) is available at:  
@@ -8,14 +12,50 @@ Interactive API documentation (Swagger UI) is available at:
 
 ---
 
+## Demo frontend
+
+- **Multi‑step questionnaire** – a modern, mobile‑friendly single‑page application that guides users through:
+  1. Gender and age selection.
+  2. Choosing a track: **Past**, **Present**, or **Future**.
+  3. Selecting a specific goal for the chosen track.
+  4. Answering track‑specific questions (with optional file upload).
+  5. Viewing the GigaChat‑generated response.
+
+- **GigaChat integration** – the collected answers are enriched (you can plug in your own context‑building logic) and sent to GigaChat to produce a short video script or narrative.
+
+- **All‑in‑one container** – the frontend is served directly from the same FastAPI application, no separate web server is needed.
+
+**Frontend Questionnaire Flow**
+
+The questionnaire is a single‑page application (/) that guides the user through four steps:
+
+1. Landing – the user selects their gender and age, then chooses one of three tracks:
+2. Past – “I want to go back to the past – to relive or let go of a moment.”
+3. Present – “I want to understand the present – who I am now and what matters to me.”
+4. Future – “I want to construct the future – to see a possible life in 3‑5 years.”
+
+**Goal selection** – depending on the chosen track, the user picks a specific goal (e.g., for “Past”: let go, rethink, show to a child, live differently, or other).
+
+**Questionnaire** – the user answers track‑specific questions (text inputs and single‑choice fields) and may optionally upload a file (image, video, audio, or text).
+
+**Result** – after submission, the collected data is sent to the /submit_questionnaire endpoint, enriched (you can add your own context‑building logic), and passed to GigaChat. The generated response is displayed on the final page.
+
+All steps are handled client‑side with vanilla JavaScript; no page reloads are required.
+
 ## 📁 Project Structure (on the server)
 
 ```/var/www/asr.lourie.info/
-├── main.py # FastAPI application + SaluteSpeechClient
+├── main.py # FastAPI application + SaluteSpeechClient + Demo Frontend
 ├── requirements.txt 
 ├── Dockerfile
 ├── docker-compose.yml 
 ├── russiantrustedca.pem # Custom CA bundle (for SaluteSpeech API)
+├── frontend/ # Frontend assets
+│ ├── static/
+│ │ ├── style.css # Styling for the questionnaire
+│ │ └── script.js # Client‑side logic for the multi‑step flow
+│ └── templates/
+│ └── index.html # Main questionnaire page
 ├── secrets/ # These files are supplied separately directly to server
 │ ├── salute_speech_api_url.txt # OAuth endpoint
 │ ├── tts_url.txt # SaluteSpeech TTS URL

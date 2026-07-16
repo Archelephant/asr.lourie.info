@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Нейро-воспоминание</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <div class="container" id="app">
+        <!-- ===== STEP 1: LANDING ===== -->
+        <div id="step-landing" class="step active">
+            <h1>Привет.</h1>
+            <p class="greeting">
+                Я ваш нейросетевой помощник <strong>Вектор</strong>.<br />
+                Я помогу создать короткое видео — нейро-воспоминание или сценарий будущего.<br />
+                <em>Кто вы?</em>
+            </p>
+
+            <div class="form-group">
+                <label>Пол</label>
+                <div class="options-row" id="gender-options">
+                    <button type="button" data-value="Мужчина">Мужчина</button>
+                    <button type="button" data-value="Женщина">Женщина</button>
+                    <button type="button" data-value="Другого пола">Другое</button>
+                    <button type="button" data-value="Не скажу, какого пола">Не скажу</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Возраст</label>
+                <div class="options-row" id="age-options">
+                    <button type="button" data-value="16–20">16–20</button>
+                    <button type="button" data-value="21–30">21–30</button>
+                    <button type="button" data-value="31–45">31–45</button>
+                    <button type="button" data-value="46–60">46–60</button>
+                    <button type="button" data-value="60+">60+</button>
+                    <button type="button" data-value="0">Не скажу</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Выберите направление</label>
+                <div class="track-buttons">
+                    <button class="track-btn" data-track="past">
+                        <strong>Прошлое</strong>
+                        <span>«Хочу вернуться в прошлое — пережить заново или отпустить момент»</span>
+                    </button>
+                    <button class="track-btn" data-track="present">
+                        <strong>Настоящее</strong>
+                        <span>«Хочу понять настоящее — кто я сейчас и что мне важно»</span>
+                    </button>
+                    <button class="track-btn" data-track="future">
+                        <strong>Будущее</strong>
+                        <span>«Хочу сконструировать будущее — смоделировать свою жизнь»</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== STEP 2: GOAL SELECTION ===== -->
+        <div id="step-goal" class="step">
+            <h2 id="goal-track-title"></h2>
+            <p>Выберите цель видео:</p>
+            <div id="goal-options" class="options-list"></div>
+            <div id="goal-other-container" style="display:none; margin-top:1rem;">
+                <label for="goal-other-input">Другое (укажите):</label>
+                <input type="text" id="goal-other-input" placeholder="Введите вашу цель" />
+            </div>
+            <div class="nav-buttons">
+                <button type="button" id="goal-back-btn">← Назад</button>
+                <button type="button" id="goal-next-btn" disabled>Далее →</button>
+            </div>
+        </div>
+
+        <!-- ===== STEP 3: QUESTIONS ===== -->
+        <div id="step-questions" class="step">
+            <h2 id="questions-title"></h2>
+            <form id="questionnaire-form" enctype="multipart/form-data">
+                <!-- Dynamic fields inserted by JS -->
+                <div id="questions-container"></div>
+                <div class="nav-buttons">
+                    <button type="button" id="questions-back-btn">← Назад</button>
+                    <button type="submit" id="submit-btn">Отправить</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- ===== STEP 4: RESULT ===== -->
+        <div id="step-result" class="step">
+            <h2>Ваше видео готовится</h2>
+            <div id="result-content"></div>
+            <button type="button" id="restart-btn">Начать заново</button>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

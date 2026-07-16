@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Демо-сайт "Вектора".</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <div class="container">
+        <h1>Questionnaire</h1>
+        <div id="progress">
+            <span id="current-step">1</span> / <span id="total-steps">3</span>
+        </div>
+        <form id="questionnaire-form" enctype="multipart/form-data">
+            <!-- Questions will be injected by JavaScript -->
+            <div id="question-container"></div>
+            <div class="nav-buttons">
+                <button type="button" id="prev-btn" disabled>← Назад</button>
+                <button type="button" id="next-btn">Вперед →</button>
+                <button type="submit" id="submit-btn" style="display:none;">Отправить</button>
+            </div>
+        </form>
+        <div id="result" style="display:none;"></div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
