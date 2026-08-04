@@ -7,58 +7,29 @@ from fastapi.responses import Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 import uuid
 import time
 from datetime import datetime, timedelta
-from typing import Optional, BinaryIO
+from typing import Dict, Any, Optional, BinaryIO
 import requests
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import mimetypes
+import logging
+from logging.handlers import RotatingFileHandler
 
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole, ChatCompletion
 
-# Default system prompt to fit into Salute Speech limitations
+# Default system prompt for main application: IoT A2A
 DEFAULT_SYSTEM_PROMPT = """Ты полезный ассистент, который отвечает на вопросы пользователя. 
 Отвечай коротко и по сути, чтобы твой ответ длился не более 30 секунд."""
 
 #Helper function to determine the MIME media type
-def get_audio_mime_type_old(filename: str) -> str:
-    """Return the correct Content-Type header for SaluteSpeech API based on file extension."""
-    ext = os.path.splitext(filename)[1].lower()
-    # Explicit mapping for SaluteSpeech requirements
-    mime_map = {
-        '.wav': 'audio/x-wav',
-        '.mp3': 'audio/mpeg',
-        '.ogg': 'audio/ogg',
-        '.flac': 'audio/flac',
-        '.opus': 'audio/ogg;codecs=opus',
-        '.pcm': 'audio/x-pcm;bit=16;rate=16000',
-    }
-    if ext in mime_map:
-        return mime_map[ext]
-    
-    # Fallback for other types
-    mime = mimetypes.guess_type(filename)[0]
-    if mime and mime.startswith('audio/'):
-        return mime
-    return 'application/octet-stream'
 
-def get_audio_mime_type(filename: str) -> str:
-    ext = os.path.splitext(filename)[1].lower()
-    mime_map = {
-        '.wav': 'audio/x-wav',
-        '.mp3': 'audio/mpeg',
-        '.ogg': 'audio/ogg',
-        '.flac': 'audio/flac',
-        '.opus': 'audio/ogg;codecs=opus',
-        '.pcm': 'audio/x-pcm;bit=16;rate=16000',
-    }
-    return mime_map.get(ext, 'application/octet-stream')
-
-def get_secret(env_var_name):
+def get_secret(env_var_name: str) -> Optional[str]:
     """Retrieve a secret either from a standard env var or from a file."""
     file_path = os.environ.get(f"{env_var_name}_FILE")
     if file_path and os.path.exists(file_path):
@@ -66,316 +37,250 @@ def get_secret(env_var_name):
             return f.read().strip()
     return os.environ.get(env_var_name)
 
+def get_config(key: str, required: bool = False, default: str = None) -> str:
+    """Get config from environment, with optional default and required check."""
+    value = get_secret(key) or os.getenv(key, default)
+    if required and not value:
+        raise ValueError(f"Missing required configuration: {key}")
+    return value
+
 # Load environment variables from .env (if present)
 load_dotenv()
-SALUTE_SPEECH_API_URL = get_secret("SALUTE_SPEECH_API_URL")
+ASR_URL = get_secret("ASR_URL")
 TTS_URL = get_secret("TTS_URL")
-SCOPE = get_secret("SCOPE")
-AUTH_KEY = get_secret("AUTH_KEY")
+API_KEY = get_secret("API_KEY")
 GIGACHAT_CREDENTIALS = get_secret("GIGACHAT_CREDENTIALS")
 
-class SaluteSpeechError(Exception):
-    """Base exception for SaluteSpeech API errors."""
+class SpeechServiceError(Exception):
+    """Base exception for all speech service errors."""
     pass
 
-class SaluteSpeechClient:
+# ------------------------------------------------------------
+#  ASR Client (Whisper)
+# ------------------------------------------------------------
+
+class ASRClient:
     """
-    A robust client for SaluteSpeech TTS API with token management,
-    automatic retries, and logging.
+    Client for Whisper ASR service (OpenAI‑compatible API).
+    Uses Basic Auth with the same AUTH_KEY as the rest of the system.
     """
 
-    def __init__(self, config: Optional[dict] = None):
-        """
-        Initialize client from environment variables or passed config dict.
-        
-        :param config: Optional dictionary with keys:
-            - api_url: OAuth token endpoint
-            - tts_url: TTS synthesis endpoint
-            - scope: OAuth scope
-            - auth_key: Basic auth key
-            - ca_bundle: Path to CA certificate file
-            - log_level: Logging level (e.g., 'INFO')
-        """
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
-        self.api_url = self._get_config('SALUTE_SPEECH_API_URL', required=True)
-        self.tts_url = self._get_config('TTS_URL', required=True)
-        self.scope = self._get_config('SCOPE', required=True)
-        self.auth_key = self._get_config('AUTH_KEY', required=True)
-        self.ca_bundle = self._get_config('CA_BUNDLE_PATH', default='russiantrustedca.pem')
-        
-        # Token management
-        self._token: Optional[str] = None
-        self._token_expires_at: Optional[datetime] = None
-        
-        # Setup logging
-        log_level = self._get_config('LOG_LEVEL', default='INFO').upper()
+        self.asr_url = self._get_config("ASR_URL", required=True)
+        self.auth_key = self._get_config("API_KEY", required=True)
+
+        # Logging
+        log_level = self._get_config("LOG_LEVEL", default="INFO").upper()
         self.logger = self._setup_logging(log_level)
-        
-        # Session for connection reuse
+
+        # Reusable session
         self.session = requests.Session()
-        self.session.verify = self.ca_bundle
-        
-        self.logger.info("SaluteSpeechClient initialized")
+        self.session.verify = True  # Use system CA bundle
+        self.logger.info("ASRClient initialized (endpoint: %s)", self.asr_url)
 
     def _get_config(self, key: str, required: bool = False, default: str = None) -> str:
-        """Retrieve configuration from passed dict, then from secret (via get_secret), then default."""
         value = self.config.get(key) or get_secret(key) or os.getenv(key, default)
         if required and not value:
-            raise SaluteSpeechError(f"Missing required configuration: {key}")
+            raise SpeechServiceError(f"Missing required configuration: {key}")
         return value
 
     def _setup_logging(self, level: str) -> logging.Logger:
-        """Configure structured logging suitable for a web server."""
-        logger = logging.getLogger('SaluteSpeechClient')
-        logger.setLevel(getattr(logging, level))
-        
-        # Avoid adding handlers multiple times
+        logger = logging.getLogger("ASRClient")
+        logger.setLevel(level)
         if not logger.handlers:
-            # Console handler (for Docker / systemd)
-            console = logging.StreamHandler()
-            console.setLevel(logging.DEBUG)
-            console.setFormatter(logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            ))
-            logger.addHandler(console)
-            
-            # Optional: Rotating file handler – uncomment if needed
-            # from logging.handlers import RotatingFileHandler
-            # file_handler = RotatingFileHandler('/var/log/salutespeech.log', maxBytes=10*1024*1024, backupCount=5)
-            # file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-            # logger.addHandler(file_handler)
-        
-        return logger
-
-    def _is_token_valid(self) -> bool:
-        """Check if current token exists and is not expired."""
-        if not self._token or not self._token_expires_at:
-            return False
-        # Add a 30-second safety margin
-        return datetime.utcnow() < (self._token_expires_at - timedelta(seconds=30))
-
-    def _fetch_new_token(self) -> str:
-        """Obtain a new OAuth token from SaluteSpeech."""
-        self.logger.info("Fetching new OAuth token")
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'RqUID': str(uuid.uuid4()),
-            'Authorization': f'Basic {self.auth_key}'
-        }
-        data = {'scope': self.scope}
-        
-        try:
-            resp = requests.post(
-                self.api_url,
-                headers=headers,
-                data=data,
-                verify=self.ca_bundle,
-                timeout=30
+            ch = logging.StreamHandler()
+            ch.setLevel(level)
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
             )
-            resp.raise_for_status()
-            token_data = resp.json()
-            token = token_data['access_token']
-            # Assume token valid for 30 minutes (1800 seconds)
-            expires_in = token_data.get('expires_in', 1800)
-            self._token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
-            self._token = token
-            self.logger.info(f"Token obtained, expires at {self._token_expires_at}")
-            return token
-        except Exception as e:
-            self.logger.error(f"Failed to obtain token: {e}")
-            raise SaluteSpeechError(f"Token acquisition failed: {e}") from e
-
-    def _get_valid_token(self) -> str:
-        """Return a valid token, refreshing if necessary."""
-        if not self._is_token_valid():
-            self._fetch_new_token()
-        return self._token
+            ch.setFormatter(formatter)
+            logger.addHandler(ch)
+        return logger
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(requests.RequestException),
-        reraise=True
+        reraise=True,
     )
     def _request_with_retries(self, method: str, url: str, **kwargs) -> requests.Response:
-        """Perform HTTP request with automatic retries on network errors."""
-        self.logger.debug(f"Request: {method} {url}")
-        resp = self.session.request(method, url, **kwargs)
-        # If 401 Unauthorized, token may be expired – try one more time with new token
-        if resp.status_code == 401:
-            self.logger.warning("Received 401, token might be invalid. Fetching new token and retrying once.")
-            self._fetch_new_token()
-            # Update Authorization header
-            kwargs['headers']['Authorization'] = f'Bearer {self._token}'
-            resp = self.session.request(method, url, **kwargs)
-        return resp
+        """Make an HTTP request with automatic retries on network errors."""
+        self.logger.debug("Request: %s %s", method, url)
+        return self.session.request(method, url, **kwargs)
 
-    def synthesize_text(
+    def recognize_audio(
         self,
-        text: str,
-        voice: str = "Ost_24000",
-        audio_format: str = "opus",
-        max_retries: int = 2
-    ) -> bytes:
+        file: BinaryIO,
+        filename: str,
+        language: str = "ru-RU",
+        model: str = "large-v3-turbo",
+        max_retries: int = 2,
+    ) -> str:
         """
-        Convert text to speech.
+        Send audio file to Whisper and return transcribed text.
 
-        :param text: Text to synthesize (max 4000 chars)
-        :param voice: Voice model (e.g., Ost_24000, Bys_24000, Nec_24000)
-        :param audio_format: One of 'opus', 'wav16', 'pcm16', 'alaw', 'g729'
-        :param max_retries: How many times to retry on recoverable errors
-        :return: Raw audio bytes (Opus in Ogg container for format='opus')
-        :raises SaluteSpeechError: on unrecoverable errors
+        :param file: Open file-like object (e.g., from UploadFile.file)
+        :param filename: Original filename (used for MIME type detection)
+        :param language: Language code (e.g., 'ru-RU' → 'ru')
+        :param model: Whisper model name (must match the server's available models)
+        :param max_retries: Number of retries on recoverable errors
+        :return: Transcribed text
         """
-        if len(text) > 4000:
-            raise SaluteSpeechError("Text exceeds 4000 character limit")
+        # Prepare authentication
+        headers = {"Authorization": f"Basic {self.auth_key}"}
 
-        token = self._get_valid_token()
-        params = {'format': audio_format, 'voice': voice}
-        headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/text'
+        # Read file content (the file object is already open)
+        file_content = file.read()
+
+        # Build multipart form‑data (OpenAI‑compatible)
+        files = {
+            "file": (filename, file_content, "audio/wav")  # adjust MIME if needed
+        }
+        data = {
+            "model": model,
+            "language": language.split("-")[0],  # 'ru-RU' → 'ru'
+            "response_format": "json",
         }
 
-        # Use tenacity for retries on transient errors (5xx, connection issues)
         @retry(
             stop=stop_after_attempt(max_retries + 1),
             wait=wait_exponential(multiplier=1, min=1, max=8),
             retry=retry_if_exception_type((
                 requests.ConnectionError,
                 requests.Timeout,
-                requests.exceptions.RetryError
+                requests.exceptions.RetryError,
             )),
-            reraise=True
+            reraise=True,
         )
         def _call():
             resp = self._request_with_retries(
-                'POST',
-                self.tts_url,
+                "POST",
+                self.asr_url,
                 headers=headers,
-                params=params,
-                data=text.encode('utf-8'),
-                stream=True,
-                timeout=(10, 30)  # connect timeout, read timeout
-            )
-            # Raise for any 4xx/5xx (except 401 which is already handled)
-            resp.raise_for_status()
-            return resp.content
-
-        try:
-            self.logger.info(f"Synthesizing text of length {len(text)} with voice {voice}")
-            audio_bytes = _call()
-            self.logger.info(f"Synthesis successful, got {len(audio_bytes)} bytes")
-            return audio_bytes
-        except requests.exceptions.HTTPError as e:
-            self.logger.error(f"HTTP error during synthesis: {e.response.status_code} - {e.response.text}")
-            raise SaluteSpeechError(f"TTS API error: {e}") from e
-        except Exception as e:
-            self.logger.error(f"Unexpected error during synthesis: {e}")
-            raise SaluteSpeechError(f"Synthesis failed: {e}") from e
-        
-    def recognize_audio(self, file: BinaryIO, filename: str, language: str = "ru-RU") -> str:
-        """
-        Recognize speech from an audio file using SaluteSpeech ASR API.
-        
-        :param file: An open binary file object containing the audio.
-        :param language: Language code for recognition (ru-RU, en-US, kk-KZ), 
-        :return: Transcribed text as a string.
-        :raises SaluteSpeechError: on unrecoverable errors.
-        """
-        #NB! Please look up SaluteSpeech documentation for actual language support!!!
-        #https://developers.sber.ru/docs/ru/salutespeech/rest/post-speech-recognition
-
-        # Get a valid OAuth token
-        token = self._get_valid_token()
-
-        # Construct the ASR endpoint URL (adjust if your URL is different)
-        # In production, this should be read from a secret, similar to TTS_URL.
-        asr_url = get_secret("ASR_URL")
-        if not asr_url:
-            # Fallback for local development
-            asr_url = "https://smartspeech.sber.ru/rest/v1/speech:recognize"
-            
-        # Get the correct Content-Type
-        content_type = get_audio_mime_type(filename)
-        
-        #headers = {
-        #    'Authorization': f'Bearer {token}',
-        #}
-        
-        headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': content_type,  # Crucial addition
-        }
-
-        # Use tenacity for retries on network and server errors
-        @retry(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=2, max=10),
-            retry=retry_if_exception_type((
-                requests.ConnectionError,
-                requests.Timeout,
-                requests.exceptions.RetryError
-            )),
-            reraise=True
-        )
-        def _call():
-            # The file is sent as the request body, with appropriate headers
-            # 'Content-Type' is set to the actual MIME type of the file.
-            # For example, 'audio/wav' for WAV files or 'audio/mpeg' for MP3.
-            # If unknown, we can try 'application/octet-stream' as a fallback.
-            # The exact file type can be derived from the 'file' object's name.
-            # However, for simplicity, we'll rely on the 'file' being correctly opened.
-            # Advanced: You can use python-magic to detect MIME type.
-            # For now, we'll let requests set it to 'application/octet-stream'.
-            # See README for more details on how to enhance this.
-            resp = self._request_with_retries(
-                'POST',
-                asr_url,
-                headers=headers,
-                data=file.read(),  # Read the entire file into memory
-                timeout=(10, 60)  # Longer read timeout for audio processing
+                files=files,
+                data=data,
+                timeout=(10, 120),  # connect, read
             )
             resp.raise_for_status()
             return resp.json()
 
         try:
-            self.logger.info(f"Recognizing audio file of size {self._get_file_size(file)} bytes")
+            self.logger.info("Transcribing: %s (language: %s)", filename, language)
             result = _call()
-            text = result.get('result', '')
-            # According to the library docs, the response may contain a 'text' field
-            # or a nested structure. We'll handle both.
-            if not text and 'text' in result:
-                text = result['text']
-            if not text and 'segments' in result:
-                text = ' '.join(segment.get('text', '') for segment in result['segments'])
-            # Ensure text is a string (join if it's a list)
-            if isinstance(text, list):
-                text = ' '.join(text)
-            elif not isinstance(text, str):
-                text = str(text)
-            self.logger.info(f"Recognition successful: {text[:50]}...")
+            text = result.get("text", "").strip()
+            self.logger.info("Transcription successful: %d chars", len(text))
             return text
         except requests.exceptions.HTTPError as e:
-            self.logger.error(f"HTTP error during recognition: {e.response.status_code} - {e.response.text}")
-            raise SaluteSpeechError(f"ASR API error: {e}") from e
+            self.logger.error("HTTP error: %d - %s", e.response.status_code, e.response.text)
+            raise SpeechServiceError(f"Whisper ASR error: {e}") from e
         except Exception as e:
-            self.logger.error(f"Unexpected error during recognition: {e}")
-            raise SaluteSpeechError(f"Recognition failed: {e}") from e
-
-    def _get_file_size(self, file: BinaryIO) -> int:
-        """Get the size of the file object (moves file pointer)."""
-        current_pos = file.tell()
-        file.seek(0, os.SEEK_END)
-        size = file.tell()
-        file.seek(current_pos)
-        return size
+            self.logger.error("Unexpected error: %s", e)
+            raise SpeechServiceError(f"ASR failed: {e}") from e
 
     def close(self):
-        """Clean up session."""
+        """Close the HTTP session."""
         self.session.close()
-        self.logger.info("Client closed")
+        self.logger.info("ASRClient closed")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+# ------------------------------------------------------------
+#  TTS Client (stub for future service)
+# ------------------------------------------------------------
+
+class TTSClient:
+    """
+    Client for TTS service (to be implemented later).
+    Currently raises NotImplementedError to prevent accidental use.
+    """
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config or {}
+        self.tts_url = self._get_config("TTS_URL", required=True)
+        self.auth_key = self._get_config("AUTH_KEY", required=True)
+
+        log_level = self._get_config("LOG_LEVEL", default="INFO").upper()
+        self.logger = self._setup_logging(log_level)
+
+        self.session = requests.Session()
+        self.session.verify = True
+        self.logger.info("TTSClient initialized (stub) – endpoint: %s", self.tts_url)
+
+    def _get_config(self, key: str, required: bool = False, default: str = None) -> str:
+        value = self.config.get(key) or get_secret(key) or os.getenv(key, default)
+        if required and not value:
+            raise SpeechServiceError(f"Missing required configuration: {key}")
+        return value
+
+    def _setup_logging(self, level: str) -> logging.Logger:
+        logger = logging.getLogger("TTSClient")
+        logger.setLevel(level)
+        if not logger.handlers:
+            ch = logging.StreamHandler()
+            ch.setLevel(level)
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            ch.setFormatter(formatter)
+            logger.addHandler(ch)
+        return logger
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(requests.RequestException),
+        reraise=True,
+    )
+    def _request_with_retries(self, method: str, url: str, **kwargs) -> requests.Response:
+        self.logger.debug("Request: %s %s", method, url)
+        return self.session.request(method, url, **kwargs)
+
+    def synthesize_text(
+        self,
+        text: str,
+        voice: str = "default",
+        audio_format: str = "mp3",
+        max_retries: int = 2,
+    ) -> bytes:
+        """
+        Convert text to speech (stub – not yet implemented).
+        Will be replaced with actual API calls when TTS service is ready.
+        """
+        # TODO: Implement actual TTS call.
+        # The code below is a placeholder that shows the intended structure.
+        # Uncomment and adapt when you have a real TTS endpoint.
+
+        # headers = {"Authorization": f"Basic {self.auth_key}", "Content-Type": "application/json"}
+        # payload = {"text": text, "voice": voice, "format": audio_format}
+        #
+        # @retry(...)
+        # def _call():
+        #     resp = self._request_with_retries("POST", self.tts_url, headers=headers, json=payload, timeout=(10, 30))
+        #     resp.raise_for_status()
+        #     return resp.content
+        #
+        # try:
+        #     self.logger.info("Synthesizing text (%d chars, voice=%s)", len(text), voice)
+        #     audio = _call()
+        #     self.logger.info("Synthesis successful: %d bytes", len(audio))
+        #     return audio
+        # except Exception as e:
+        #     self.logger.error("TTS error: %s", e)
+        #     raise SpeechServiceError(f"TTS failed: {e}") from e
+
+        raise NotImplementedError(
+            "TTS synthesis is not yet implemented. "
+            "Please set up a TTS service and update TTSClient.synthesize_text()."
+        )
+
+    def close(self):
+        self.session.close()
+        self.logger.info("TTSClient closed")
 
     def __enter__(self):
         return self
@@ -478,70 +383,181 @@ logging.basicConfig(
 )
 logger = logging.getLogger("asr-api")
 
-# Global client instance (lazy initialization or on startup)
-client: Optional[SaluteSpeechClient] = None
-giga_client: Optional[GigaChatClient] = None
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: create clients
-    global client, giga_client
-    try:
-        client = SaluteSpeechClient()
-        logger.info("SaluteSpeechClient initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize SaluteSpeechClient: {e}")
-        raise
-
-    # --- GigaChat client initialization ---
-    gigachat_credentials = get_secret("GIGACHAT_CREDENTIALS")
-    if gigachat_credentials:
-        ca_bundle_path = os.getenv("CA_BUNDLE_PATH")
-        giga_client = GigaChatClient(
-            credentials=gigachat_credentials,
-            ca_bundle_file=ca_bundle_path if ca_bundle_path and os.path.exists(ca_bundle_path) else None
-        )
-        logger.info("GigaChat client initialized")
-    else:
-        logger.warning("GigaChat credentials not found – /a2a endpoint will be unavailable")
-        giga_client = None
-    yield
-    # Shutdown: clean up
-    if client:
-        client.close()
-        logger.info("SaluteSpeechClient closed")
-
 # -----------------------------FAST API starts here--------------------------------------------------
 app = FastAPI(
     title="ASR TTS API",
-    description="Text-to-Speech using SaluteSpeech API",
-    version="1.0",
-    lifespan=lifespan
+    description="ASR and Text-to-Speech with self-hosted Whisper and Kokoro",
+    version="1.1"#,
+    #lifespan=lifespan
 )
 
-# ---- Authentication Dependency ----
-API_KEY = get_secret("ASR_API_KEY")
-if not API_KEY:
-    logger.warning("ASR_API_KEY not set in environment. API will be unprotected!")
+#-------------------------Logging------------------------------------
+# ---- 1. Configure rotating file logger ----
+LOG_DIR = "logs"
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)                 # create directory if missing
+LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
-def verify_api_key(request: Request):
-    provided_key = request.headers.get("X-API-Key")
-    if not API_KEY:
-        # If no key configured, allow all (not recommended)
-        return True
-    if not provided_key or provided_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
-    return True
+# Create a logger for our application
+logger = logging.getLogger("app")
+logger.setLevel(logging.INFO)
 
-# ---- Request/Response Models ----
-class TTSRequest(BaseModel):
-    text: str = Field(..., max_length=4000, description="Text to synthesize")
-    voice: str = Field("Ost_24000", description="Voice code (e.g., Ost_24000, Bys_24000)")
-    format: str = Field("opus", description="Audio format: opus, wav16, pcm16, alaw, g729")
+# Rotating file handler: 10 MB per file, keep 5 backups
+handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=10_000_000,    # 10 MB
+    backupCount=5           # keep 5 old files (total ~60 MB max)
+)
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
-class TTSResponse(BaseModel):
-    # Not used for audio response, but for error details
-    detail: str
+# Also log to console (optional) - useful during development
+console = logging.StreamHandler()
+console.setFormatter(formatter)
+logger.addHandler(console)
+
+# ---- 2. Middleware to time every request ----
+class TimingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.perf_counter()
+        response = await call_next(request)
+        process_time = time.perf_counter() - start_time
+
+        # Log the request details
+        logger.info(
+            f"{request.method} {request.url.path} "
+            f"status={response.status_code} "
+            f"duration={process_time:.3f}s"
+        )
+        # Optionally add a header for client‑side debugging
+        response.headers["X-Process-Time"] = f"{process_time:.3f}"
+        return response
+
+app.add_middleware(TimingMiddleware)
+#-------------------------End logging--------------------------------
+
+# Global clients (lazy‑initialized)
+_asr_client: Optional[ASRClient] = None
+_tts_client: Optional[TTSClient] = None
+giga_client: Optional[GigaChatClient] = None
+
+def get_asr_client() -> ASRClient:
+    global _asr_client
+    if _asr_client is None:
+        _asr_client = ASRClient()
+    return _asr_client
+
+
+def get_tts_client() -> TTSClient:
+    global _tts_client
+    if _tts_client is None:
+        _tts_client = TTSClient()
+    return _tts_client
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Clean up clients on shutdown."""
+    global _asr_client, _tts_client
+    if _asr_client:
+        _asr_client.close()
+    if _tts_client:
+        _tts_client.close()
+
+
+# ------------------------------------------------------------
+#  Health Check
+# ------------------------------------------------------------
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "speech"}
+
+
+# ------------------------------------------------------------
+#  ASR Endpoint
+# ------------------------------------------------------------
+
+@app.post("/asr")
+async def speech_to_text(
+    file: UploadFile = File(...),
+    language: str = Form("ru-RU"),
+    model: str = Form("large-v3-turbo"),
+):
+    """
+    Accept an audio file and return the transcribed text.
+    Uses the local Whisper service via ASRClient.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    try:
+        client = get_asr_client()
+        text = client.recognize_audio(
+            file.file,
+            filename=file.filename,
+            language=language,
+            model=model,
+        )
+        return {"text": text, "language": language}
+    except SpeechServiceError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+
+
+# ------------------------------------------------------------
+#  TTS Endpoint (stub)
+# ------------------------------------------------------------
+
+@app.post("/tts")
+async def text_to_speech(
+    text: str = Form(...),
+    voice: str = Form("default"),
+    audio_format: str = Form("mp3"),
+):
+    """
+    Synthesize speech from text (currently a stub).
+    Returns audio bytes once the TTS service is integrated.
+    """
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty text")
+
+    try:
+        client = get_tts_client()
+        audio_bytes = client.synthesize_text(text, voice=voice, audio_format=audio_format)
+        # Once implemented, return the audio with proper Content-Type
+        # return Response(audio_bytes, media_type=f"audio/{audio_format}")
+        # For now, we raise a 501 to clearly indicate not implemented.
+        raise HTTPException(
+            status_code=501,
+            detail="TTS service is not yet implemented. Please set up a TTS server."
+        )
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e))
+    except SpeechServiceError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+
+
+# ------------------------------------------------------------
+#  Optional: root and documentation
+# ------------------------------------------------------------
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Speech ASR/TTS",
+        "endpoints": {
+            "/asr": "POST – transcribe audio (multipart/form-data)",
+            "/tts": "POST – synthesize speech (form data, stub)",
+            "/health": "GET – health check",
+        },
+    }
 
 #--------------------------Front-end----------------------------------------------------
 # Mount static files (CSS, JS)
@@ -679,6 +695,9 @@ async def submit_questionnaire(
     # --- 2. TODO: Enrich context (your logic here) ---
     enriched_prompt = user_message  # Placeholder – replace with your enrichment
 
+    # --- Log the enriched prompt (truncated) ---
+    logger.info(f"TRACK: {track}; GOAL: {goal}; ENRICHED_PROMPT: \n{enriched_prompt}")
+
     # --- 3. Call GigaChat ---
     director_prompt = """
     Ты - сценарист-психолог.
@@ -687,182 +706,20 @@ async def submit_questionnaire(
     Не используй имен собственных, если пользователь их в явном виде не сообщил.
     Помни, что нейросетевые видео ограничены по времени.
     """
+    start = time.perf_counter()
 
     try:
         response_text = giga_client.generate_response(enriched_prompt, system_prompt=director_prompt)
     except Exception as e:
-        logger.error(f"GigaChat error: {e}")
+        duration = time.perf_counter() - start
+        logger.error(f"GigaChat error after {duration:.3f}s: {e}")
         raise HTTPException(status_code=500, detail=f"GigaChat error: {str(e)}")
+    duration = time.perf_counter() - start
+    logger.info(f"LLM call completed in {duration:.3f}s")
+    logger.info(f"LLM response:{response_text}")
 
     # --- 4. Return the response ---
     return {"response": response_text}
 
 
-# ---- Synthesize Speech Endpoint ----
-@app.post("/asr/synthesize", dependencies=[Depends(verify_api_key)])
-async def synthesize(tts_req: TTSRequest):
-    """
-    Synthesize speech from text and return audio bytes.
-    """
-    global client
-    if client is None:
-        raise HTTPException(status_code=503, detail="TTS service not initialized")
-
-    try:
-        audio_bytes = client.synthesize_text(
-            text=tts_req.text,
-            voice=tts_req.voice,
-            audio_format=tts_req.format
-        )
-        # Determine content type based on format
-        content_type = "audio/ogg" if tts_req.format == "opus" else f"audio/{tts_req.format}"
-        return Response(content=audio_bytes, media_type=content_type)
-    except SaluteSpeechError as e:
-        logger.error(f"TTS synthesis error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        logger.exception("Unexpected error during synthesis")
-        raise HTTPException(status_code=500, detail="Internal server error")
-    
-
-# ASR endpoint-----------------------------------------
-
-@app.post("/asr/asr", dependencies=[Depends(verify_api_key)])
-async def asr(
-    request: Request,
-    file: UploadFile = File(...),
-    language: str = "ru-RU",
-    verbose: bool = False   #Verbose logging for debug purposes
-):
-    """
-    Recognize speech from an audio file and return text.
-
-    - **file**: Audio file (WAV, MP3, etc.). Max size determined by nginx (30 MB).
-    - **language**: Language code (`ru-RU`, `en-US`, `kk-KZ`). Defaults to `ru-RU`.
-    """
-    global client
-    if client is None:
-        raise HTTPException(status_code=503, detail="ASR service not initialized")
-
-    # Validate file content type (basic check)
-    allowed_types = ['audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3', 'audio/ogg', 'application/octet-stream']
-    if file.content_type not in allowed_types:
-        # Optionally, you can try to detect MIME type using python-magic
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
-
-    # Validate language parameter
-    if language not in ['ru-RU', 'en-US', 'kk-KZ']:
-        raise HTTPException(status_code=400, detail=f"Unsupported language: {language}. Supported: ru-RU, en-US, kk-KZ")
-
-    
-    try:
-        request_id = str(uuid.uuid4())
-        contents = await file.read()
-        file_size = len(contents)
-        
-        if verbose:
-            logger.info(f"[{request_id}] ASR request - file received: {file.filename}, size: {file_size} bytes, language: {language}")
-
-        # Check file size (2 MB limit for SaluteSpeech)
-        if file_size > 2 * 1024 * 1024:  # 2 MB
-            raise HTTPException(
-                status_code=400, 
-                detail="File size exceeds 2 MB limit for synchronous recognition"
-            )
-                
-        from io import BytesIO
-        audio_io = BytesIO(contents)
-        
-        # Pass the original filename for MIME detection
-        text = client.recognize_audio(audio_io, file.filename, language=language)
-
-        if verbose:
-            logger.info(f"[{request_id}] ASR result: {text}")
-        return {"text": text}
-    
-
-    except Exception as e:
-        logger.exception("Unexpected error during ASR processing")
-        raise HTTPException(status_code=500, detail="Internal server error")
-    
-# A2A Endpoint------------------------
-
-@app.post("/a2a", dependencies=[Depends(verify_api_key)])
-async def a2a(
-    request: Request,
-    file: UploadFile = File(...),
-    language: str = "ru-RU",
-    verbose: bool = False   #Verbose logging for debug purposes
-):
-    """
-    Process audio from IoT device through ASR -> GigaChat -> TTS pipeline.
-    
-    Input: audio file
-    Output: synthesized speech audio (same format as /asr/synthesize)
-    
-    - **file**: Audio file (WAV, MP3, etc.)
-    - **language**: Language code (`ru-RU`, `en-US`, `kk-KZ`). Defaults to `ru-RU`.
-    """
-    global client, giga_client
-    if client is None or giga_client is None:
-        raise HTTPException(status_code=503, detail="Service not initialized")
-    
-    # Validate file (size limits, format, etc.)
-    # ... (reuse existing validation from /asr/asr)
-    
-    try:
-        request_id = str(uuid.uuid4())
-        # 1. Read the uploaded file
-        contents = await file.read()
-        file_size = len(contents)
-
-        if verbose:
-            logger.info(f"[{request_id}] A2A request - file received: {file.filename}, size: {file_size} bytes, language: {language}")
-            logger.info(f"[{request_id}] A2A request - file: {file.filename}, size: {file_size} bytes, language: {language}")
-            giga_status = "active" if giga_client is not None else "inactive/not initialized"
-            logger.info(f"[{request_id}] GigaChat client status: {giga_status}")
-
-        
-        # Check file size (2 MB limit for SaluteSpeech synchronous ASR)
-        if file_size > 2 * 1024 * 1024:  # 2 MB
-            raise HTTPException(
-                status_code=400,
-                detail="File size exceeds 2 MB limit for synchronous recognition"
-            )
-        
-        from io import BytesIO
-        audio_io = BytesIO(contents)
-        
-        # 2. Step 1: ASR - Convert speech to text
-        asr_text = client.recognize_audio(audio_io, file.filename, language=language)
-        logger.info(f"ASR completed for file {file.filename}.")
-        logger.info(f"ASR returned: {asr_text!r} (type: {type(asr_text)})")
-        
-        # 3. Step 2: GigaChat - Generate response
-        response_text = giga_client.generate_response(asr_text)
-        logger.info(f"GigaChat response: {response_text[:50]}...")
-        if verbose:
-            logger.info(f"[{request_id}] GigaChat response: {response_text}")
-        
-        # 4. Step 3: TTS - Convert response text back to speech
-        audio_response = client.synthesize_text(response_text, voice="Nec_24000", audio_format="wav16")
-        
-        # 5. Return the synthesized audio
-        # Determine content type based on format
-        format_map = {
-            "opus": "audio/ogg",
-            "wav16": "audio/wav",
-            "pcm16": "audio/pcm",
-            "alaw": "audio/alaw",
-            "g729": "audio/g729"
-        }
-        content_type = format_map.get("wav16", "application/octet-stream")
-        
-        return Response(content=audio_response, media_type=content_type)
-        
-    except SaluteSpeechError as e:
-        logger.error(f"SaluteSpeech error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        logger.exception("Unexpected error during A2A processing")
-        raise HTTPException(status_code=500, detail="Internal server error")
+# A2A Endpoint To be added later------------------------
