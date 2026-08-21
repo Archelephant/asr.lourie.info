@@ -321,6 +321,18 @@ class GigaChatClient:
                 )
         return self._client
     
+    def check_auth(self) -> float:
+        """
+        Request a real access token from GigaChat to verify credentials,
+        CA bundle and network connectivity.
+
+        :return: elapsed seconds
+        :raises Exception: if authentication fails
+        """
+        start = time.perf_counter()
+        self._get_client().get_token()
+        return time.perf_counter() - start
+
     def generate_response(self, text: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> str:
         """
         Generate a response from GigaChat based on the input text.
@@ -370,7 +382,7 @@ class GigaChatClient:
             return result
         except Exception as e:
             self.logger.error(f"Error generating GigaChat response: {e}")
-            raise SaluteSpeechError(f"GigaChat generation failed: {e}") from e
+            raise SpeechServiceError(f"GigaChat generation failed: {e}") from e
 
 # Load environment (if .env exists)
 from dotenv import load_dotenv
@@ -384,11 +396,135 @@ logging.basicConfig(
 logger = logging.getLogger("asr-api")
 
 # -----------------------------FAST API starts here--------------------------------------------------
+
+# ------------------------------------------------------------
+#  Startup self-tests
+#  Run once on application startup and log the results, so that a
+#  broken deployment is visible in the logs immediately instead of
+#  surfacing as 503s on the first user request.
+# ------------------------------------------------------------
+
+def _selftest_gigachat_config() -> bool:
+    """Check GigaChat configuration presence. A failure here is fatal."""
+    if not get_secret("GIGACHAT_CREDENTIALS"):
+        logger.error("SELF-TEST [gigachat/config]: FAIL – GIGACHAT_CREDENTIALS is not set")
+        return False
+    ca_path = os.getenv("CA_BUNDLE_PATH")
+    if ca_path and not os.path.exists(ca_path):
+        logger.error("SELF-TEST [gigachat/config]: FAIL – CA bundle not found at %s", ca_path)
+        return False
+    logger.info(
+        "SELF-TEST [gigachat/config]: PASS – credentials present, CA bundle: %s",
+        ca_path or "<not set – SSL verification will be disabled>",
+    )
+    return True
+
+
+def _selftest_gigachat_auth() -> bool:
+    """Initialize GigaChatClient and obtain a real access token."""
+    global giga_client
+    try:
+        giga_client = GigaChatClient(
+            credentials=get_secret("GIGACHAT_CREDENTIALS"),
+            ca_bundle_file=os.getenv("CA_BUNDLE_PATH"),
+            scope=get_secret("SCOPE") or "GIGACHAT_API_PERS",
+        )
+        duration = giga_client.check_auth()
+        logger.info("SELF-TEST [gigachat/auth]: PASS – access token received in %.2fs", duration)
+        return True
+    except Exception as e:
+        logger.error("SELF-TEST [gigachat/auth]: FAIL – %s", e)
+        return False
+
+
+def _selftest_gigachat_smoke() -> None:
+    """Optional end-to-end chat ping. Enable with GIGACHAT_SMOKE_TEST=true."""
+    if os.getenv("GIGACHAT_SMOKE_TEST", "").lower() not in ("1", "true", "yes"):
+        logger.info("SELF-TEST [gigachat/smoke]: SKIP – set GIGACHAT_SMOKE_TEST=true to enable")
+        return
+    try:
+        start = time.perf_counter()
+        reply = giga_client.generate_response("Ответь одним словом: работает?")
+        logger.info(
+            "SELF-TEST [gigachat/smoke]: PASS – reply=%r (%.2fs)",
+            str(reply)[:50], time.perf_counter() - start,
+        )
+    except Exception as e:
+        logger.error("SELF-TEST [gigachat/smoke]: FAIL – %s", e)
+
+
+def _selftest_asr_reachable() -> bool:
+    """Ping the Whisper ASR service. Any HTTP response counts as reachable."""
+    url = get_secret("ASR_URL")
+    if not url:
+        logger.warning("SELF-TEST [asr/reachable]: SKIP – ASR_URL is not set")
+        return False
+    try:
+        start = time.perf_counter()
+        resp = requests.get(url, timeout=5)
+        logger.info(
+            "SELF-TEST [asr/reachable]: PASS – HTTP %d in %.2fs",
+            resp.status_code, time.perf_counter() - start,
+        )
+        return True
+    except requests.RequestException as e:
+        logger.warning("SELF-TEST [asr/reachable]: WARN – unreachable (%s)", e)
+        return False
+
+
+def run_startup_selftests() -> None:
+    """
+    Run all self-tests. Missing/invalid GigaChat configuration is fatal
+    (the container will crash-loop with a clear reason in the logs);
+    network failures only degrade the service (503 on submit).
+    """
+    logger.info("=" * 60)
+    logger.info("STARTUP SELF-TESTS")
+    logger.info("=" * 60)
+
+    config_ok = _selftest_gigachat_config()
+    if not config_ok:
+        raise RuntimeError(
+            "GigaChat configuration is invalid – "
+            "check GIGACHAT_CREDENTIALS and CA_BUNDLE_PATH"
+        )
+
+    auth_ok = _selftest_gigachat_auth()
+    if auth_ok:
+        _selftest_gigachat_smoke()
+
+    asr_ok = _selftest_asr_reachable()
+    logger.warning("SELF-TEST [tts]: SKIP – TTS service is a stub (not implemented)")
+
+    passed = sum([config_ok, auth_ok, asr_ok])
+    if config_ok and auth_ok:
+        logger.info("STARTUP SELF-TESTS FINISHED: %d/3 checks passed", passed)
+    else:
+        logger.warning(
+            "STARTUP SELF-TESTS FINISHED: %d/3 checks passed – "
+            "/submit_questionnaire may return 503 until GigaChat is reachable",
+            passed,
+        )
+    logger.info("=" * 60)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ----- startup -----
+    run_startup_selftests()
+    yield
+    # ----- shutdown -----
+    global _asr_client, _tts_client
+    for client in (_asr_client, _tts_client):
+        if client:
+            client.close()
+
+
 app = FastAPI(
     title="ASR TTS API",
     description="ASR and Text-to-Speech with self-hosted Whisper and Kokoro",
-    version="1.1"#,
-    #lifespan=lifespan
+    version="1.1",
+    lifespan=lifespan,
 )
 
 #-------------------------Logging------------------------------------
@@ -456,16 +592,6 @@ def get_tts_client() -> TTSClient:
     if _tts_client is None:
         _tts_client = TTSClient()
     return _tts_client
-
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """Clean up clients on shutdown."""
-    global _asr_client, _tts_client
-    if _asr_client:
-        _asr_client.close()
-    if _tts_client:
-        _tts_client.close()
 
 
 # ------------------------------------------------------------
