@@ -566,15 +566,6 @@ app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
 # Set up Jinja2 templates
 templates = Jinja2Templates(directory="frontend/templates")
 
-# Initial entry URL, I'll keep it for now
-@app.get("/questionnaire", response_class=HTMLResponse)
-async def get_questionnaire(request: Request):
-    """Serve the questionnaire frontend."""
-    #debug
-    print(type(templates)) 
-    print(templates.__dict__.keys()) 
-    return templates.TemplateResponse(request=request, name="questionnaire.html", context={"request": request})
-
 # Multi-step intro
 @app.get("/", response_class=HTMLResponse)
 async def get_index(request: Request):
