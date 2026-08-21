@@ -192,6 +192,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 input.placeholder = 'Ваш ответ...';
                 div.appendChild(input);
             } else if (q.type === 'choice') {
+                // Hidden input carries the selected value into FormData on submit
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = q.id;
+                div.appendChild(hidden);
+
                 const choiceContainer = document.createElement('div');
                 choiceContainer.className = 'options-row';
                 q.options.forEach(opt => {
@@ -202,10 +208,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     btn.addEventListener('click', () => {
                         choiceContainer.querySelectorAll('button').forEach(b => b.classList.remove('selected'));
                         btn.classList.add('selected');
+                        hidden.value = opt;
                         // If "другое", show text input
                         const otherInput = div.querySelector('.other-input');
                         if (opt === 'другое') {
                             otherInput.style.display = 'block';
+                            otherInput.focus();
                         } else {
                             otherInput.style.display = 'none';
                             otherInput.value = '';
@@ -263,6 +271,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----- Form submission -----
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+
+        // Validate text answers
+        for (const inp of questionsContainer.querySelectorAll('input[type="text"]:not(.other-input)')) {
+            if (!inp.value.trim()) {
+                alert('Пожалуйста, заполните все поля ответов.');
+                inp.focus();
+                return;
+            }
+        }
+
+        // Validate choice selections
+        for (const block of questionsContainer.querySelectorAll('.question-block')) {
+            const selectedBtn = block.querySelector('.options-row button.selected');
+            if (block.querySelector('.options-row') && !selectedBtn) {
+                alert('Пожалуйста, выберите вариант в каждом вопросе.');
+                return;
+            }
+            if (selectedBtn && selectedBtn.dataset.value === 'другое') {
+                const otherInput = block.querySelector('.other-input');
+                if (!otherInput || !otherInput.value.trim()) {
+                    alert('Пожалуйста, уточните свой вариант.');
+                    if (otherInput) otherInput.focus();
+                    return;
+                }
+            }
+        }
+
+        // Text inputs, hidden choice inputs and the file are collected by FormData(form)
         const formData = new FormData(form);
 
         // Add gender, age, track, goal
@@ -273,45 +309,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.goal === 'другое') {
             formData.append('goal_other', state.goalOther);
         }
-
-        // Add selected choices for choice questions
-        // We need to gather the selected values from the buttons
-        const choiceButtons = document.querySelectorAll('.question-block .options-row button.selected');
-        choiceButtons.forEach(btn => {
-            const parent = btn.closest('.question-block');
-            const input = parent.querySelector('input.other-input');
-            const name = btn.dataset.value === 'другое' ? btn.dataset.value + '_other' : btn.dataset.value;
-            // Actually we need to send the selected option. But we already have the input field with name containing '_other'.
-            // Better: we can add hidden fields or just rely on the form's inputs.
-            // The buttons are not part of form submission; we need to set the value in a hidden input.
-            // Instead, we'll read values from the DOM and add them manually.
-        });
-
-        // Manually collect answers for each question
-        const questionBlocks = document.querySelectorAll('.question-block');
-        questionBlocks.forEach(block => {
-            // For text inputs
-            const textInput = block.querySelector('input[type="text"]:not(.other-input)');
-            if (textInput && textInput.name) {
-                formData.append(textInput.name, textInput.value);
-            }
-            // For choice: find selected button
-            const selectedBtn = block.querySelector('.options-row button.selected');
-            if (selectedBtn) {
-                const value = selectedBtn.dataset.value;
-                if (value === 'другое') {
-                    const otherInput = block.querySelector('.other-input');
-                    formData.append(selectedBtn.name || 'choice_other', otherInput ? otherInput.value : '');
-                } else {
-                    // we need a field name – we can use the question id
-                    const label = block.querySelector('label');
-                    // We'll use a generic name based on the question text; better to assign an id.
-                    // We'll use the question's id from trackData. We can store them in data attributes.
-                    // For simplicity, we'll use the first text input's name if exists, or a generic.
-                    // Actually we can add hidden inputs in JS when building the form.
-                }
-            }
-        });
 
         // Disable submit button
         submitBtn.disabled = true;
@@ -324,8 +321,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || 'Ошибка при отправке');
+                let detail = `Ошибка ${response.status}`;
+                try {
+                    const err = await response.json();
+                    detail = err.detail || detail;
+                } catch (_) {
+                    // non-JSON error body (e.g. HTML from a proxy)
+                }
+                throw new Error(detail);
             }
 
             const data = await response.json();
@@ -353,7 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.track-btn').forEach(b => b.disabled = true);
         document.querySelectorAll('input[type="text"]').forEach(inp => inp.value = '');
         document.querySelectorAll('.other-input').forEach(inp => inp.style.display = 'none');
-        document.querySelector('.file-name').textContent = 'Файл не выбран';
+        document.querySelectorAll('.file-name').forEach(el => el.textContent = 'Файл не выбран');
         // Reset form
         form.reset();
         showStep('landing');
