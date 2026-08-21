@@ -545,19 +545,11 @@ async def text_to_speech(
 
 
 # ------------------------------------------------------------
-#  Optional: root and documentation
+#  Optional: documentation
+#  NOTE: no JSON handler for "/" here – the HTML questionnaire below
+#  must be the first (and only) GET "/" route, otherwise FastAPI's
+#  registration-order matching shadows it.
 # ------------------------------------------------------------
-
-@app.get("/")
-async def root():
-    return {
-        "service": "Speech ASR/TTS",
-        "endpoints": {
-            "/asr": "POST – transcribe audio (multipart/form-data)",
-            "/tts": "POST – synthesize speech (form data, stub)",
-            "/health": "GET – health check",
-        },
-    }
 
 #--------------------------Front-end----------------------------------------------------
 # Mount static files (CSS, JS)
