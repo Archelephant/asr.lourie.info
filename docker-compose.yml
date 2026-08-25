@@ -1,0 +1,41 @@
+services:
+  fastapi:
+    image: ghcr.io/archelephant/asr.lourie.info:latest
+    restart: always
+    secrets:
+      - salute_speech_api_url
+      - tts_url
+      - asr_url
+      - scope
+      - auth_key
+      - asr_api_key
+      - gigachat_credentials
+    environment:
+      - SALUTE_SPEECH_API_URL_FILE=/run/secrets/salute_speech_api_url
+      - TTS_URL_FILE=/run/secrets/tts_url
+      - ASR_URL_FILE=/run/secrets/asr_url
+      - SCOPE_FILE=/run/secrets/scope
+      - AUTH_KEY_FILE=/run/secrets/auth_key
+      - ASR_API_KEY_FILE=/run/secrets/asr_api_key
+      - CA_BUNDLE_PATH=/app/russiantrustedca.pem
+      - GIGACHAT_CREDENTIALS_FILE=/run/secrets/gigachat_credentials
+    volumes:
+      - ./russiantrustedca.pem:/app/russiantrustedca.pem:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+
+secrets:
+  salute_speech_api_url:
+    file: ./secrets/salute_speech_api_url.txt
+  tts_url:
+    file: ./secrets/tts_url.txt
+  asr_url:
+    file: ./secrets/asr_url.txt
+  scope:
+    file: ./secrets/scope.txt
+  auth_key:
+    file: ./secrets/auth_key.txt
+  asr_api_key:
+    file: ./secrets/asr_api_key.txt
+  gigachat_credentials:
+    file: ./secrets/gigachat_credentials.txt
