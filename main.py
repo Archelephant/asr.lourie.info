@@ -290,35 +290,42 @@ class TTSClient:
 
 class GigaChatClient:
     """Client for GigaChat API with retry, exponential backoff, and token management."""
-    
-    def __init__(self, credentials: str, ca_bundle_file: Optional[str] = None, scope: str = "GIGACHAT_API_PERS"):
+
+    VALID_SCOPES = {"GIGACHAT_API_PERS", "GIGACHAT_API_B2B", "GIGACHAT_API_CORP"}
+
+    def __init__(
+        self,
+        credentials: str,
+        ca_bundle_file: Optional[str] = None,
+        scope: Optional[str] = "GIGACHAT_API_PERS",
+        model: Optional[str] = None,
+    ):
         self.credentials = credentials
         self.ca_bundle_file = ca_bundle_file
         self.scope = scope
+        self.model = model or os.getenv("GIGACHAT_MODEL", "GigaChat-2")
         self.logger = logging.getLogger("GigaChatClient")
         self._client = None
-    
+        if scope and scope not in self.VALID_SCOPES:
+            self.logger.warning("Unknown GigaChat scope: %r. Valid: %s. Proceeding anyway.", scope, self.VALID_SCOPES)
+
     def _get_client(self) -> GigaChat:
         """Get or create the GigaChat client instance."""
         if self._client is None:
-            # Configure the client with SSL certificate if provided
+            client_kwargs = {
+                "credentials": self.credentials,
+                "timeout": 30.0,
+                "model": self.model,
+            }
+            if self.scope is not None:
+                client_kwargs["scope"] = self.scope
             if self.ca_bundle_file and os.path.exists(self.ca_bundle_file):
-                self._client = GigaChat(
-                    credentials=self.credentials,
-                    scope=self.scope,
-                    ca_bundle_file=self.ca_bundle_file,
-                    verify_ssl_certs=True,
-                    timeout=30.0
-                )
+                client_kwargs["ca_bundle_file"] = self.ca_bundle_file
+                client_kwargs["verify_ssl_certs"] = True
             else:
-                # Fallback for development - disable SSL verification (not recommended for production)
                 self.logger.warning("Using GigaChat without SSL certificate verification. This is not recommended for production.")
-                self._client = GigaChat(
-                    credentials=self.credentials,
-                    scope=self.scope,
-                    verify_ssl_certs=False,
-                    timeout=30.0
-                )
+                client_kwargs["verify_ssl_certs"] = False
+            self._client = GigaChat(**client_kwargs)
         return self._client
     
     def check_auth(self) -> float:
@@ -423,17 +430,20 @@ def _selftest_gigachat_config() -> bool:
 def _selftest_gigachat_auth() -> bool:
     """Initialize GigaChatClient and obtain a real access token."""
     global giga_client
+    used_scope = get_secret("SCOPE") or "GIGACHAT_API_PERS"
+    used_model = os.getenv("GIGACHAT_MODEL", "GigaChat")
     try:
         giga_client = GigaChatClient(
             credentials=get_secret("GIGACHAT_CREDENTIALS"),
             ca_bundle_file=os.getenv("CA_BUNDLE_PATH"),
-            scope=get_secret("SCOPE") or "GIGACHAT_API_PERS",
+            scope=used_scope,
+            model=used_model,
         )
         duration = giga_client.check_auth()
-        logger.info("SELF-TEST [gigachat/auth]: PASS – access token received in %.2fs", duration)
+        logger.info("SELF-TEST [gigachat/auth]: PASS – access token received in %.2fs (scope=%s, model=%s)", duration, used_scope, used_model)
         return True
     except Exception as e:
-        logger.error("SELF-TEST [gigachat/auth]: FAIL – %s", e)
+        logger.error("SELF-TEST [gigachat/auth]: FAIL – %s (scope=%s, model=%s)", e, used_scope, used_model)
         return False
 
 

@@ -76,3 +76,149 @@
 2026-07-28 11:02:31,069 - app - INFO - POST /submit_questionnaire status=200 duration=10.301s
 2026-07-30 11:18:31,858 - app - INFO - SaluteSpeechClient closed
 2026-08-04 12:53:16,422 - app - ERROR - Failed to initialize SaluteSpeechClient: name 'SaluteSpeechClient' is not defined
+2026-08-26 21:54:58,138 - app - INFO - ============================================================
+2026-08-26 21:54:58,138 - app - INFO - STARTUP SELF-TESTS
+2026-08-26 21:54:58,139 - app - INFO - ============================================================
+2026-08-26 21:54:58,139 - app - INFO - SELF-TEST [gigachat/config]: PASS – credentials present, CA bundle: russiantrustedca.pem
+2026-08-26 21:54:58,792 - app - INFO - SELF-TEST [gigachat/auth]: PASS – access token received in 0.65s (scope=GIGACHAT_API_PERS)
+2026-08-26 21:54:58,792 - app - INFO - SELF-TEST [gigachat/smoke]: SKIP – set GIGACHAT_SMOKE_TEST=true to enable
+2026-08-26 21:55:02,430 - app - INFO - SELF-TEST [asr/reachable]: PASS – HTTP 401 in 3.64s
+2026-08-26 21:55:02,432 - app - WARNING - SELF-TEST [tts]: SKIP – TTS service is a stub (not implemented)
+2026-08-26 21:55:02,432 - app - INFO - STARTUP SELF-TESTS FINISHED: 3/3 checks passed
+2026-08-26 21:55:02,432 - app - INFO - ============================================================
+2026-08-26 21:55:31,469 - app - INFO - GET / status=200 duration=0.012s
+2026-08-26 21:55:31,522 - app - INFO - GET /static/style.css status=200 duration=0.028s
+2026-08-26 21:55:31,523 - app - INFO - GET /static/script.js status=200 duration=0.027s
+2026-08-26 21:55:31,571 - app - INFO - GET / status=200 duration=0.001s
+2026-08-26 21:55:31,596 - app - INFO - GET /favicon.ico status=404 duration=0.000s
+2026-08-26 21:55:58,690 - app - INFO - TRACK: past; GOAL: просто вспомнить; ENRICHED_PROMPT: 
+Я хочу заново пережить опыт Выпускной из прошлого c целью просто вспомнить. 
+            Это было в Набережная Северной Двины, в тот момент мне было 17.
+            Помню, что тогда было не помню.
+            Сейчас мне 46–60 лет, я Мужчина.
+2026-08-26 21:55:58,691 - app - ERROR - GigaChat error after 0.001s: GigaChat generation failed: No model specified. Pass `model` in the request payload, set `GigaChat(model=...)` or the GIGACHAT_MODEL environment variable. Use `get_models()` to list available models.
+2026-08-26 21:55:58,692 - app - INFO - POST /submit_questionnaire status=500 duration=0.031s
+2026-08-26 21:59:03,676 - app - INFO - ============================================================
+2026-08-26 21:59:03,676 - app - INFO - STARTUP SELF-TESTS
+2026-08-26 21:59:03,677 - app - INFO - ============================================================
+2026-08-26 21:59:03,677 - app - INFO - SELF-TEST [gigachat/config]: PASS – credentials present, CA bundle: russiantrustedca.pem
+2026-08-26 21:59:04,165 - app - INFO - SELF-TEST [gigachat/auth]: PASS – access token received in 0.49s (scope=GIGACHAT_API_PERS)
+2026-08-26 21:59:04,165 - app - INFO - SELF-TEST [gigachat/smoke]: SKIP – set GIGACHAT_SMOKE_TEST=true to enable
+2026-08-26 21:59:04,734 - app - INFO - SELF-TEST [asr/reachable]: PASS – HTTP 401 in 0.57s
+2026-08-26 21:59:04,735 - app - WARNING - SELF-TEST [tts]: SKIP – TTS service is a stub (not implemented)
+2026-08-26 21:59:04,736 - app - INFO - STARTUP SELF-TESTS FINISHED: 3/3 checks passed
+2026-08-26 21:59:04,736 - app - INFO - ============================================================
+2026-08-26 21:59:45,639 - app - INFO - ============================================================
+2026-08-26 21:59:45,639 - app - INFO - STARTUP SELF-TESTS
+2026-08-26 21:59:45,639 - app - INFO - ============================================================
+2026-08-26 21:59:45,639 - app - INFO - SELF-TEST [gigachat/config]: PASS – credentials present, CA bundle: russiantrustedca.pem
+2026-08-26 21:59:46,161 - app - INFO - SELF-TEST [gigachat/auth]: PASS – access token received in 0.52s (scope=GIGACHAT_API_PERS, model=GigaChat)
+2026-08-26 21:59:46,161 - app - INFO - SELF-TEST [gigachat/smoke]: SKIP – set GIGACHAT_SMOKE_TEST=true to enable
+2026-08-26 21:59:51,175 - app - WARNING - SELF-TEST [asr/reachable]: WARN – unreachable (HTTPSConnectionPool(host='whisper.lourie.info', port=443): Max retries exceeded with url: /v1/audio/transcriptions (Caused by ConnectTimeoutError(<HTTPSConnection(host='whisper.lourie.info', port=443) at 0x1f67ae97620>, 'Connection to whisper.lourie.info timed out. (connect timeout=5)')))
+2026-08-26 21:59:51,176 - app - WARNING - SELF-TEST [tts]: SKIP – TTS service is a stub (not implemented)
+2026-08-26 21:59:51,177 - app - INFO - STARTUP SELF-TESTS FINISHED: 2/3 checks passed
+2026-08-26 21:59:51,177 - app - INFO - ============================================================
+2026-08-26 22:04:23,377 - app - INFO - TRACK: past; GOAL: просто вспомнить; ENRICHED_PROMPT: 
+Я хочу заново пережить опыт Выпускной из прошлого c целью просто вспомнить. 
+            Это было в Набережная Северной Двины, в тот момент мне было 17.
+            Помню, что тогда было не помню.
+            Сейчас мне 46–60 лет, я Мужчина.
+2026-08-26 22:04:24,314 - app - ERROR - GigaChat error after 0.937s: GigaChat generation failed: 404 https://api.giga.chat/v1/chat/completions: b'{"status":404,"message":"No such model"}\n', Headers({'server': 'nginx', 'date': 'Wed, 26 Aug 2026 19:04:25 GMT', 'content-type': 'application/json; charset=utf-8', 'transfer-encoding': 'chunked', 'connection': 'keep-alive', 'keep-alive': 'timeout=15', 'vary': 'Accept-Encoding', 'set-cookie': 'spid=1787771064943_c2d4515a4d1142a2921c75b1ac2aaf11_6lu7rrrvi47m4ps7; Expires=Tue, 19 Jan 2038 03:14:07 GMT; Path=/; Secure; SameSite=None', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization', 'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS', 'access-control-allow-origin': 'https://gigachat.sberdevices.ru', 'x-request-id': '889855ca-6d5e-451a-b0ff-ee1c7f17753d', 'x-session-id': '5379783b-0bf8-40f6-9389-b9630230e604', 'x-sp-crid': '5298274906:1', 'content-encoding': 'gzip'})
+2026-08-26 22:04:24,320 - app - INFO - POST /submit_questionnaire status=500 duration=0.966s
+2026-08-26 22:04:42,708 - app - INFO - GET / status=200 duration=0.003s
+2026-08-26 22:04:42,751 - app - INFO - GET / status=200 duration=0.000s
+2026-08-26 22:05:09,338 - app - INFO - TRACK: past; GOAL: просто вспомнить; ENRICHED_PROMPT: 
+Я хочу заново пережить опыт Выпускной из прошлого c целью просто вспомнить. 
+            Это было в Набережная Северной Двины, в тот момент мне было 17.
+            Помню, что тогда было не помню.
+            Сейчас мне 46–60 лет, я Мужчина.
+2026-08-26 22:05:11,053 - app - ERROR - GigaChat error after 1.714s: GigaChat generation failed: 404 https://api.giga.chat/v1/chat/completions: b'{"status":404,"message":"No such model"}\n', Headers({'server': 'nginx', 'date': 'Wed, 26 Aug 2026 19:05:11 GMT', 'content-type': 'application/json; charset=utf-8', 'transfer-encoding': 'chunked', 'connection': 'keep-alive', 'keep-alive': 'timeout=15', 'vary': 'Accept-Encoding', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization', 'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS', 'access-control-allow-origin': 'https://gigachat.sberdevices.ru', 'x-request-id': '38a74e7d-f0aa-44dd-b150-383a65bbfb3a', 'x-session-id': '3959acb2-2efa-4cef-9268-78db21f41010', 'x-sp-crid': '5252332938:1', 'content-encoding': 'gzip'})
+2026-08-26 22:05:11,054 - app - INFO - POST /submit_questionnaire status=500 duration=1.746s
+2026-08-26 22:10:44,842 - app - INFO - ============================================================
+2026-08-26 22:10:44,842 - app - INFO - STARTUP SELF-TESTS
+2026-08-26 22:10:44,842 - app - INFO - ============================================================
+2026-08-26 22:10:44,843 - app - INFO - SELF-TEST [gigachat/config]: PASS – credentials present, CA bundle: russiantrustedca.pem
+2026-08-26 22:10:45,453 - app - INFO - SELF-TEST [gigachat/auth]: PASS – access token received in 0.61s (scope=GIGACHAT_API_PERS, model=GigaChat-2)
+2026-08-26 22:10:45,454 - app - INFO - SELF-TEST [gigachat/smoke]: SKIP – set GIGACHAT_SMOKE_TEST=true to enable
+2026-08-26 22:10:46,656 - app - INFO - SELF-TEST [asr/reachable]: PASS – HTTP 401 in 1.20s
+2026-08-26 22:10:46,659 - app - WARNING - SELF-TEST [tts]: SKIP – TTS service is a stub (not implemented)
+2026-08-26 22:10:46,660 - app - INFO - STARTUP SELF-TESTS FINISHED: 3/3 checks passed
+2026-08-26 22:10:46,660 - app - INFO - ============================================================
+2026-08-26 22:13:14,896 - app - INFO - GET / status=200 duration=0.004s
+2026-08-26 22:13:14,983 - app - INFO - GET / status=200 duration=0.001s
+2026-08-26 22:13:36,658 - app - INFO - TRACK: past; GOAL: просто вспомнить; ENRICHED_PROMPT: 
+Я хочу заново пережить опыт Выпускной из прошлого c целью просто вспомнить. 
+            Это было в Вечный огонь на набережной Северной Двины, в тот момент мне было 17.
+            Помню, что тогда было не помню.
+            Сейчас мне 46–60 лет, я Мужчина.
+2026-08-26 22:13:41,661 - app - INFO - LLM call completed in 5.002s
+2026-08-26 22:13:41,662 - app - INFO - LLM response:# Сценарий видеоролика "Вечный огонь"
+
+## Цель ролика:
+Создать психологически комфортное пространство для мужчины 46-60 лет, чтобы он мог мысленно вернуться к своему выпускному вечеру на набережной Северной Двины, пережив этот опыт заново и сохранив приятные воспоминания.
+
+---
+
+## Длительность ролика: ~3 минуты  
+
+### Сцена 1: Начало воспоминаний (0:00 – 0:30)
+
+*Фон:* Звуки набегающих волн, шум ветра, тихие разговоры людей на набережной.
+
+*Камера:* Медленный панорамный кадр набережной Северной Двины вечером. Вид на Вечный огонь, отражающийся в воде.
+
+*Голос за кадром:* "Закройте глаза. Представьте себе вечер… Вы стоите здесь, на набережной Северной Двины. Вам 17 лет."
+
+---
+
+### Сцена 2: Воспоминания о юности (0:30 – 1:00)
+
+*Фон:* Тихая музыка, напоминающая атмосферу вечера.
+
+*Камера:* Панорамный вид на Вечный огонь, крупные планы лиц друзей, улыбок, радостных разговоров.
+
+*Голос за кадром:* "Вы чувствуете себя молодым, полным надежд и планов. Здесь рядом ваши друзья, вы вместе переживаете этот особенный момент. Что вы помните? Какие чувства вас охватывают?"
+
+---
+
+### Сцена 3: Детали момента (1:00 – 1:30)
+
+*Фон:* Мелодичный звук воды и спокойная музыка.
+
+*Камера:* Крупные планы деталей: факелы Вечного огня, блики света на воде, отражение звезд в реке, лица ваших друзей.
+
+*Голос за кадром:* "Обратите внимание на детали. Что именно вам запомнилось больше всего? Может быть, запах моря или вкус мороженого? Что вы чувствовали в тот момент?"
+
+---
+
+### Сцена 4: Переживание эмоций (1:30 – 2:00)
+
+*Фон:* Спокойная мелодичная музыка.
+
+*Камера:* План медленно меняется на крупный план вашего лица, затем камера отдаляется, показывая ваше лицо крупным планом в окружении Вечного огня.
+
+*Голос за кадром:* "Позвольте себе снова ощутить эти эмоции. Пусть они вернутся к вам сейчас. Что вы чувствуете? Радость? Свобода? Ощущение жизни?"
+
+---
+
+### Сцена 5: Завершение воспоминания (2:00 – 2:30)
+
+*Фон:* Легкая, нежная музыка.
+
+*Камера:* Камера медленно приближается к вашему лицу, фиксируя взгляд, наполненный теплыми воспоминаниями.
+
+*Голос за кадром:* "Вернитесь обратно в настоящее время. Позвольте этим воспоминаниям остаться с вами. Они часть вашей истории, и сегодня вы можете гордиться собой."
+
+*Конец ролика.*
+
+---
+
+## Инструкции для нейросети:
+
+1. Создайте плавную смену кадров, используя панорамные и крупноплановые съемки.
+2. Используйте естественные звуки окружающей среды: шум воды, ветер, голоса людей.
+3. Добавьте спокойную фоновую музыку, которая подчеркнет эмоциональность сцены.
+4. Обеспечьте четкое озвучание голосом за кадром, направляющим зрителя через процесс воспоминания.
+5. Убедитесь, что визуальное оформление соответствует атмосфере набережной Северной Двины и Вечного огня.
+6. Продолжительность каждой сцены должна плавно переходить в следующую, создавая ощущение непрерывности и погружения.
+2026-08-26 22:13:41,664 - app - INFO - POST /submit_questionnaire status=200 duration=5.035s
