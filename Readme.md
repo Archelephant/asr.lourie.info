@@ -21,7 +21,7 @@ Interactive API documentation (Swagger UI) is available at:
   4. Answering track‑specific questions (with optional file upload).
   5. Viewing the GigaChat‑generated response.
 
-- **GigaChat integration** – the collected answers are enriched (you can plug in your own context‑building logic) and sent to GigaChat to produce a short video script or narrative.
+- **GigaChat integration** – the collected answers are enriched (you can plug in your own context‑building logic) and sent to GigaChat (model `GigaChat-2`, scope `GIGACHAT_API_PERS`) to produce a short video script or narrative.
 
 - **All‑in‑one container** – the frontend is served directly from the same FastAPI application, no separate web server is needed.
 
@@ -60,7 +60,7 @@ All steps are handled client‑side with vanilla JavaScript; no page reloads are
 │ ├── salute_speech_api_url.txt # OAuth endpoint
 │ ├── tts_url.txt # SaluteSpeech TTS URL
 │ ├── asr_url.txt # SaluteSpeech ASR URL
-│ ├── scope.txt # OAuth scope (e.g., SALUTE_SPEECH_PERS)
+│ ├── scope.txt # OAuth scope (GIGACHAT_API_PERS for GigaChat)
 │ ├── auth_key.txt # Basic Auth key (client_id:client_secret)
 │ └── asr_api_key.txt # API key for authenticating requests to this service
 │ └── gigachat_credentials.txt # API key for authenticating requests to GigaChat API
@@ -76,12 +76,17 @@ All steps are handled client‑side with vanilla JavaScript; no page reloads are
 | `salute_speech_api_url.txt` | `SALUTE_SPEECH_API_URL_FILE` | OAuth token endpoint |
 | `tts_url.txt`               | `TTS_URL_FILE`                         | SaluteSpeech TTS URL |
 | `asr_url.txt`               | `ASR_URL_FILE`                         | SaluteSpeech ASR URL |
-| `scope.txt`                 | `SCOPE_FILE`                           | OAuth scope |
+| `scope.txt`                 | `SCOPE_FILE`                           | OAuth scope (GIGACHAT_API_PERS) |
 | `auth_key.txt`              | `AUTH_KEY_FILE`                        | Basic auth credentials (Base64) |
 | `asr_api_key.txt`           | `ASR_API_KEY_FILE`                     | API key for `X-API-Key` header |
 | `gigachat_credentials.txt`  | `GIGACHAT_CREDENTIALS_FILE`            | API key for GigaChat API |
 
-These files are **mounted as Docker secrets** – they are never exposed in environment variables directly, only read via `get_secret()` in the code.
+Additional environment variables (not secrets, set in docker-compose.yml):
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `GIGACHAT_MODEL` | `GigaChat-2` | GigaChat model to use (GigaChat-2, GigaChat-2-Max, GigaChat-2-Pro, GigaChat-3-Ultra) |
+| `CA_BUNDLE_PATH` | `/app/russiantrustedca.pem` | Path to CA bundle for SSL verification |
 
 ---
 
@@ -111,6 +116,7 @@ services:
       - ASR_API_KEY_FILE=/run/secrets/asr_api_key
       - CA_BUNDLE_PATH=/app/russiantrustedca.pem
       - GIGACHAT_CREDENTIALS_FILE=/run/secrets/gigachat_credentials
+      - GIGACHAT_MODEL=GigaChat-2
     volumes:
       - ./russiantrustedca.pem:/app/russiantrustedca.pem:ro
     ports:
@@ -232,7 +238,7 @@ Endpoint: `POST /a2a`
 
 Processes an audio file through a full **speech recognition → AI generation → speech synthesis** pipeline:
 1. Transcribes the incoming audio (ASR)
-2. Sends the text to GigaChat for a generated response
+2. Sends the text to GigaChat (model `GigaChat-2`, scope `GIGACHAT_API_PERS`) for a generated response
 3. Synthesizes the response text back into speech (TTS)
 
 The result is an audio file containing the AI‑generated spoken answer – ideal for voice‑enabled IoT devices.
@@ -289,7 +295,22 @@ On the server:
     source venv/bin/activate
     pip install -r requirements.txt
 
-    Set environment variables (or create .env file) with the same keys as the secrets.
+    Set environment variables (or create .env file):
+
+    ```bash
+    # Required
+    ASR_URL=https://whisper.lourie.info/v1/audio/transcriptions
+    TTS_URL=https://smartspeech.sber.ru/rest/v1/text:synthesize
+    API_KEY=your_api_key
+    GIGACHAT_CREDENTIALS=base64_encoded_client_id:client_secret
+    SCOPE=GIGACHAT_API_PERS
+    GIGACHAT_MODEL=GigaChat-2
+    CA_BUNDLE_PATH=russiantrustedca.pem
+
+    # Optional
+    LOG_LEVEL=INFO
+    GIGACHAT_SMOKE_TEST=true  # enable end-to-end test on startup
+    ```
 
     Run the FastAPI server:
     bash
@@ -302,7 +323,7 @@ Add `?verbose=true` to the URL to log:
 - File size and name
 - Transcribed text
 - GigaChat client status (active/inactive)  
-- For `/a2a`: GigaChat response and final audio size
+- For `/a2a`: GigaChat response, model used, and final audio size
 
 Example:  
 `https://asr.lourie.info/a2a?verbose=true`
