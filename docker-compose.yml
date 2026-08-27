@@ -19,6 +19,7 @@ services:
       - ASR_API_KEY_FILE=/run/secrets/asr_api_key
       - CA_BUNDLE_PATH=/app/russiantrustedca.pem
       - GIGACHAT_CREDENTIALS_FILE=/run/secrets/gigachat_credentials
+      - GIGACHAT_MODEL=GigaChat-2   
     volumes:
       - ./russiantrustedca.pem:/app/russiantrustedca.pem:ro
     ports:
