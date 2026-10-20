@@ -24,6 +24,23 @@ secrets/
 .DS_Store
 Thumbs.db
 
-#tests
-test.sh
-logs/app.log
+# Machine-specific agent tooling (shared commands and skills stay tracked)
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock
+.openspec/**/node_modules/
+
+# Local OpenSpec state
+# NOTE: openspec/changes/*/.openspec.yaml is required metadata and MUST stay
+# tracked — excluding it breaks archiving. Only per-machine state is ignored.
+/.openspec.yaml
+openspec/.cache/
+openspec/*.local.yaml
+
+# Local test artifacts
+# NOTE: test.sh is tracked — it holds no secret, the key comes from the
+# environment or an untracked .env.
+test/*.wav
+/test.wav
+response*.wav

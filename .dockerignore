@@ -16,8 +16,19 @@ test.sh
 .dockerignore
 docker-compose.yml
 
+# Ignore development-only files: they are not part of the running service.
+requirements-dev.txt
+pytest.ini
+.pytest_cache/
+tests/
+test/
+openspec/
+.opencode/
+.vscode/
+
 # Ignore other development and temporary files.
 __pycache__/
 *.pyc
 *.log
 .DS_Store
+logs/

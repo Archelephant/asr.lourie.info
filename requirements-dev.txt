@@ -1,0 +1,12 @@
+# Development dependencies — everything the runtime needs, plus the tooling.
+-r requirements.txt
+
+pytest>=8.0
+responses>=0.25
+
+# Makes `uvicorn --reload` watch the tree efficiently. Without it uvicorn
+# falls back to polling, which works but is slower.
+watchfiles>=0.20
+
+# Checks for unused imports and other dead code.
+pyflakes

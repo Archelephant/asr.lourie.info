@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-20
+goal: The live /asr endpoint returns 503 on every request and the X-API-Key auth
+  was dropped in the Whisper rework; the questionnaire also discards user
+  answers and uploaded files.

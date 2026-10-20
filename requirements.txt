@@ -1,5 +1,15 @@
+# Runtime dependencies — only what the service imports or needs at run time.
+#
+#   fastapi           the web framework
+#   uvicorn           the ASGI server the container runs
+#   python-dotenv     reads .env in development
+#   requests          calls the upstream speech service
+#   tenacity          retries those calls
+#   python-multipart  parses the multipart form uploads
+#   gigachat          the language model client
+#   jinja2            renders the questionnaire page
 fastapi
-uvicorn[standard]
+uvicorn
 python-dotenv
 requests
 tenacity
